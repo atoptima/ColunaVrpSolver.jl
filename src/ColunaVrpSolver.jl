@@ -1,7 +1,8 @@
 module ColunaVrpSolver
     using Coluna, JuMP, BlockDecomposition, Gurobi
 
-    export VrpSolver
+    export VrpModel, VrpGraph, add_resource!, add_graph!
 
-    include("Model.jl")
+    include("VrpModel.jl")
+    include("RcspWrapper.jl")
 end
