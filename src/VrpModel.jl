@@ -1,7 +1,7 @@
 mutable struct VrpModel
     formulation::JuMP.Model
     bd_graphs::BlockDecomposition.Axis
-    rcsp_instances::Vector{Ref{Ptr{Cvoid}}}
+    rcsp_instances::Vector{Ptr{Cvoid}}
 end
 
 function VrpModel()
@@ -33,5 +33,5 @@ function VrpModel()
     form = BlockModel(coluna, direct_model = true)
 
     # Return the VrpSolver model containing the Coluna and RCSP models
-    return VrpModel(form, BlockDecomposition.Axis(:noname, []), Ref{Ptr{Cvoid}}[])
+    return VrpModel(form, BlockDecomposition.Axis(:noname, []), Ptr{Cvoid}[])
 end
