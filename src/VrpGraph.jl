@@ -1,14 +1,20 @@
 # Get the binary library path
 global path = "$(ENV["RCSP_LIB_PATH"])"
 
+abstract type AbstractVrpModel end
+
 mutable struct VrpGraph
+    id::Int
     cptr::Ptr{Cvoid}
     bounds::Tuple{Float64, Float64}
     orig_sink::Int
     new_sink::Int
+    mappings::Dict{Int, Vector{VariableRef}}
 end
 
-function VrpGraph(_::VrpModel, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int, Int})
+function VrpGraph(
+    _::T, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int, Int}
+) where T
     new_sink = sink
     vertices_ = copy(vertices)
     if sink == source
@@ -19,7 +25,7 @@ function VrpGraph(_::VrpModel, vertices::Vector{Int}, source::Int, sink::Int, bo
         (:createGraph_c, path), Ptr{Cvoid}, (Cint, Ptr{Cint}, Cint, Cint),
         Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink)
     )
-    graph = VrpGraph(cptr_, Float64.(bounds), sink, new_sink)
+    graph = VrpGraph(0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}())
     return graph
 end
 
@@ -53,7 +59,19 @@ function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Flo
     return
 end
 
-function add_graph!(model::VrpModel, graph::VrpGraph)
+function add_arc_var_mapping!(graph::VrpGraph, arcid::Int, var::VariableRef)
+    mapped = get(graph.mappings, arcid, VariableRef[])
+    if isempty(mapped)
+        graph.mappings[arcid] = mapped
+    end
+    push!(mapped, var)
+end
+
+function add_graph!(model::T, graph::VrpGraph) where {T <: AbstractVrpModel}
+    # Add the graph to the VRP model
+    push!(model.graphs, graph)
+    graph.id = length(model.graphs)
+
     # Instantiate an RCSP solver
     rcsp = ccall((:createAndPrepareSolver_c, path), Ptr{Cvoid}, (Ptr{Cvoid},), graph.cptr)
 
