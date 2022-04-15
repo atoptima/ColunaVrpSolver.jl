@@ -10,6 +10,7 @@ mutable struct VrpGraph
     orig_sink::Int
     new_sink::Int
     mappings::Dict{Int, Vector{VariableRef}}
+    max_arcid::Int
 end
 
 function VrpGraph(
@@ -25,7 +26,9 @@ function VrpGraph(
         (:createGraph_c, path), Ptr{Cvoid}, (Cint, Ptr{Cint}, Cint, Cint),
         Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink)
     )
-    graph = VrpGraph(0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}())
+    graph = VrpGraph(
+        0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}(), 0
+    )
     return graph
 end
 
@@ -48,6 +51,7 @@ function add_arc!(graph::VrpGraph, tail::Int, head::Int)
     id = ccall(
         (:addArc_c, path), Cint, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(tail), Cint(h)
     )
+    graph.max_arcid = max(graph.max_arcid, Int(id))
     return Int(id)
 end
 
