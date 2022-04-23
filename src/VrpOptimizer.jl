@@ -4,14 +4,16 @@ mutable struct VrpOptimizer
 end
 
 function VrpOptimizer(model::VrpModel, _::String, _::String)
+    graphs = getfield.(model.rcsp_instances, :graph)
+
     # add the mapped arc-variables to the model
-    A = [collect(keys(model.graphs[g].mappings)) for g in 1:length(model.graphs)]
-    @axis(VrpGraphs, 1:length(model.graphs))
+    A = [collect(keys(graphs[g].mappings)) for g in 1:length(graphs)]
+    @axis(VrpGraphs, 1:length(graphs))
     @variable(model.formulation, __arc[g in VrpGraphs, a in A[g]] >= 0)
 
     # compute the inverse of the mapping function
     map_inverse = Dict{VariableRef, Vector{Tuple{Int, Int}}}()
-    for graph in model.graphs
+    for graph in graphs
         for (arcid, mapped_modelvars) in graph.mappings
             for modelvar in mapped_modelvars
                 mapped_arcs = get(map_inverse, modelvar, Tuple{Int, Int}[])
@@ -39,7 +41,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     model.bd_graphs = decomp
 
     # preallocate a vector to store the reduced costs
-    arc_rcosts = [zeros(Float64, graph.max_arcid + 1) for graph in model.graphs]
+    arc_rcosts = [zeros(Float64, graph.max_arcid + 1) for graph in graphs]
 
     # Define the function to perform pricing via RCSP solver
     function solve_RCSP_pricing(cbdata)
