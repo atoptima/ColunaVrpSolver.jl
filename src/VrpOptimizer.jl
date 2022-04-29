@@ -38,7 +38,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
 
     # apply the decomposition and store the axis
     @dantzig_wolfe_decomposition(model.formulation, decomp, VrpGraphs)
-    model.bd_graphs = decomp
+    model.bd_graphs[1] = decomp
 
     # preallocate a vector to store the reduced costs
     arc_rcosts = [zeros(Float64, graph.max_arcid + 1) for graph in graphs]
@@ -53,37 +53,39 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
         end
         @show arc_rcosts
 
-        # TODO: ccall :runPricing_c and :getOutputPaths_c
-        #= submit the routes with the smallest reduced costs
-        routes_idx = [r for r in 1:length(spm.route_vars[rt])]
-        nb_cols = min(length(routes_idx), max_cols)
-        cols_idx = partialsort!(routes_idx, 1:nb_cols, by = (r -> rc_routes[r]))
-        # @show rc_routes[routes_idx[1]]
-        # println("rc_routes = $([rc_routes[r] for r in cols_idx])")
-        for r in cols_idx
+        # call the pricing solver
+        paths = run_rcsp_pricing(model.rcsp_instances[g], 0, arc_rcosts)
+        @show paths
+
+        # submit the priced paths to Coluna
+        for p in paths
             solvals = Float64[]
             solvars = JuMP.VariableRef[]
-            solvisits = UInt512(0)
-            i = 0
-            for j in spm.route_vars[rt][r].visits
-                e = (i < j) ? (i, j) : (j, i)
-                push!(solvals, 1.0)
-                push!(solvars, x[rt, e])
-                solvisits |= (UInt512(1) << (j - 1))
-                i = j
+            arccount = Dict{Int, Int}()
+            rc = 0.0
+            for a in p
+                arccount[a] = get(arccount, a, 0) + 1
+                rc += arc_rcosts[a + 1]
             end
-            push!(solvals, 1.0)
-            push!(solvars, x[rt, (0, i)])
-            push!(solvals, 1.0)
-            push!(solvars, y[rt])
-            push!(solvals, spm.route_vars[rt][r].cost)
-            push!(solvars, _cost[rt])
-            # @show tuple.(solvars, solvals)
+            for a in keys(arccount)
+                push!(solvals, Float64(arccount[a]))
+                push!(solvars, __arc[g, a])
+            end
             MOI.submit(
-                sp, BD.PricingSolution(cbdata), rc_routes[r], solvars, solvals,
-                RouteVarData(solvisits, spm.route_vars[rt][r].visits)
+                sp, BD.PricingSolution(cbdata), rc, solvars, solvals
             )
-        end =#
+        end
+    end
+
+    # set the solution multiplicities and the pricing callback function
+    # for each graph
+    subproblems = getsubproblems(decomp)
+    for g in 1:length(graphs)
+        (L, U) = graphs[g].bounds
+        specify!(
+            subproblems[g], lower_multiplicity = L, upper_multiplicity = U,
+            solver = solve_RCSP_pricing
+        )
     end
 
     # create a dictionary of return values for compatibility with old applications
@@ -103,7 +105,7 @@ function set_cutoff!(opt::VrpOptimizer, cutoffvalue::Float64)
     objectiveprimalbound!(opt.model.formulation, cutoffvalue)
 end
 
-function optimize!(opt::VrpOptimizer)
+function JuMP.optimize!(opt::VrpOptimizer)
     optimize!(opt.model.formulation)
     status = get(opt.status_dict, JuMP.termination_status(opt.model.formulation), :Error)
     hassol = (JuMP.result_count(opt.model.formulation) > 0)

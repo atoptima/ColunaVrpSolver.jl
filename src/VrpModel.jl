@@ -1,7 +1,7 @@
 mutable struct VrpModel <: AbstractVrpModel
     formulation::JuMP.Model
     rcsp_instances::Vector{RCSPProblem}
-    bd_graphs::BlockDecomposition.Axis
+    bd_graphs::Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}
 end
 
 function VrpModel()
@@ -33,5 +33,8 @@ function VrpModel()
     form = BlockModel(coluna, direct_model = true)
 
     # Return the VrpSolver model containing the Coluna and RCSP models
-    return VrpModel(form, RCSPProblem[], BlockDecomposition.Axis(:noname, []))
+    return VrpModel(
+        form, RCSPProblem[],
+        Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1)
+    )
 end
