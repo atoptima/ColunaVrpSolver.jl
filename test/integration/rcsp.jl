@@ -27,10 +27,12 @@ function run_rcsp_integration_tests()
         id_to_arc = Dict{Int,Tuple{Int, Int}}()
         for (i, j) in E
             arcid = add_arc!(G, i, j)
+            add_arc_var_mapping!(G, arcid, x[(i,j)])
             id_to_arc[arcid] = (i, j)
             max_arcid = max(max_arcid, arcid)
             set_arc_consumption!(G, arcid, resid, (d(i) + d(j)) / 2)
             arcid = add_arc!(G, j, i)
+            add_arc_var_mapping!(G, arcid, x[(i,j)])
             id_to_arc[arcid] = (j, i)
             max_arcid = max(max_arcid, arcid)
             set_arc_consumption!(G, arcid, resid, (d(i) + d(j)) / 2)
@@ -75,11 +77,24 @@ function run_rcsp_integration_tests()
         set_cutoff!(opt, 100.0)
         (status, solution_found) = optimize!(opt)
 
-        # test the result
+        # print and test the result
         @show status, solution_found
+        @test (status, solution_found) == (:Optimal, true)
         if solution_found
-            @show objective_value(opt)
-            @show value(x)
+            obj = get_objective_value(opt)
+            @show obj
+            @test obj ≈ 12.0
+            sol = Float64[]
+            for e in E
+                val = get_value(opt, x[e])
+                push!(sol, val)
+                if val > 1e-5
+                    println("x[$e] = $val")
+                end
+            end
+            @test reduce(&,
+                sol .≈ [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+            )
         end
     end
 end

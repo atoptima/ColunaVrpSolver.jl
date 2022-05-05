@@ -32,7 +32,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     #   the variable costs (also used when they are mapped)
     # - inform the RCSP solver about mappings and variable costs (for enumeration)
     @constraint(
-        model.formulation, [v in collect(keys(map_inverse))],
+        model.formulation, __map[v in collect(keys(map_inverse))],
         v == sum(__arc[g, a] for (g, a) in map_inverse[v])
     )
 
@@ -47,15 +47,17 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     function solve_RCSP_pricing(cbdata)
 
         # Get the reduced costs of arc variables
-        g = BD.callback_spid(cbdata, model.formulation)
+        g = BlockDecomposition.callback_spid(cbdata, model.formulation)
         for a in A[g]
-            arc_rcosts[a + 1] = BD.callback_reduced_cost(cbdata, __arc[g, a])
+            arc_rcosts[g][a + 1] = BlockDecomposition.callback_reduced_cost(
+                cbdata, __arc[g, a]
+            )
         end
-        @show arc_rcosts
+        # @show arc_rcosts
 
         # call the pricing solver
-        paths = run_rcsp_pricing(model.rcsp_instances[g], 0, arc_rcosts)
-        @show paths
+        paths = run_rcsp_pricing(model.rcsp_instances[g], 0, arc_rcosts[g])
+        # @show paths
 
         # submit the priced paths to Coluna
         for p in paths
@@ -65,14 +67,15 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
             rc = 0.0
             for a in p
                 arccount[a] = get(arccount, a, 0) + 1
-                rc += arc_rcosts[a + 1]
+                rc += arc_rcosts[g][a + 1]
             end
             for a in keys(arccount)
                 push!(solvals, Float64(arccount[a]))
                 push!(solvars, __arc[g, a])
             end
-            MOI.submit(
-                sp, BD.PricingSolution(cbdata), rc, solvars, solvals
+            MathOptInterface.submit(
+                model.formulation, BlockDecomposition.PricingSolution(cbdata),
+                rc, solvars, solvals
             )
         end
     end
@@ -110,4 +113,12 @@ function JuMP.optimize!(opt::VrpOptimizer)
     status = get(opt.status_dict, JuMP.termination_status(opt.model.formulation), :Error)
     hassol = (JuMP.result_count(opt.model.formulation) > 0)
     return status, hassol
+end
+
+function get_objective_value(opt::VrpOptimizer)
+    return objective_value(opt.model.formulation)
+end
+
+function get_value(::VrpOptimizer, var::JuMP.VariableRef)
+    return value(var)
 end
