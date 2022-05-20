@@ -8,9 +8,12 @@ function run_rcsp_integration_tests()
     E = [(i, j) for i in 0:3 for j in (i + 1):4]
     c(e) = abs(e[1] - e[2])
     δ(i) = [(_i, _j) for (_i, _j) in E if i in (_i, _j)]
-    d(i) = (i == 0) ? 0 : (i + 1)
+    d(i) = (i == 0) ? 0.0 : Float64(i + 1)
+    Q = 10.0
 
-    function build_toy_model()
+    function build_toy_model(
+        ; with_ngpaths::Bool = false, with_capacitycuts::Bool = false
+    )
         # create the master problem
         toy = VrpModel()
         @variable(toy.formulation, x[e in E], Int)
@@ -21,7 +24,7 @@ function run_rcsp_integration_tests()
         G = VrpGraph(toy, V, 0, 0, (0, 4))
         resid = add_resource!(G, main = true)
         for i in V
-            set_resource_bounds!(G, i, resid, 0.0, 10.0)
+            set_resource_bounds!(G, i, resid, 0.0, Q)
         end
         max_arcid = 0
         id_to_arc = Dict{Int,Tuple{Int, Int}}()
@@ -38,6 +41,15 @@ function run_rcsp_integration_tests()
             set_arc_consumption!(G, arcid, resid, (d(i) + d(j)) / 2)
         end
         add_graph!(toy, G)
+        if with_ngpaths
+            set_vertex_packing_sets!(toy, [[(G,i)] for i in V⁺])
+            define_elementarity_sets_distance_matrix!(
+                toy, G, [[Float64(c((i, j))) for j in V⁺] for i in V⁺]
+            )
+        end
+        if with_capacitycuts
+            add_capacity_cut_separator!(toy, [ ( [(G,i)], d(i) ) for i in V⁺], Q)
+        end
 
         return toy, x, id_to_arc, max_arcid
     end
@@ -47,6 +59,7 @@ function run_rcsp_integration_tests()
 
         # build a toy VRP model with one graph
         toy, _, id_to_arc, max_arcid = build_toy_model()
+        ColunaVrpSolver.build_solvers!(toy)
         rcsp = toy.rcsp_instances[1] 
         @test rcsp.solver != Ptr{Cvoid}(0)
 
@@ -71,30 +84,38 @@ function run_rcsp_integration_tests()
     end
 
     @testset "Solving a complete CVRP toy instance" begin
-        # build a toy CVRP model and solve
-        toy, x, _, _ = build_toy_model()
-        opt = VrpOptimizer(toy, "", "toy")
-        set_cutoff!(opt, 100.0)
-        (status, solution_found) = optimize!(opt)
-
-        # print and test the result
-        @show status, solution_found
-        @test (status, solution_found) == (:Optimal, true)
-        if solution_found
-            obj = get_objective_value(opt)
-            @show obj
-            @test obj ≈ 12.0
-            sol = Float64[]
-            for e in E
-                val = get_value(opt, x[e])
-                push!(sol, val)
-                if val > 1e-5
-                    println("x[$e] = $val")
-                end
-            end
-            @test reduce(&,
-                sol .≈ [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        for (ng, cc) in [(false, false), (true, false), (true, true)]
+            # build a toy CVRP model and solve
+            toy, x, _, _ = build_toy_model(
+                with_ngpaths = ng, with_capacitycuts = cc
             )
+            if cc
+                @test toy.rcc_separator != Ptr{Cvoid}
+                break
+            end
+            opt = VrpOptimizer(toy, "", "toy")
+            set_cutoff!(opt, 100.0)
+            (status, solution_found) = optimize!(opt)
+
+            # print and test the result
+            @show status, solution_found
+            @test (status, solution_found) == (:Optimal, true)
+            if solution_found
+                obj = get_objective_value(opt)
+                @show obj
+                @test obj ≈ 12.0
+                sol = Float64[]
+                for e in E
+                    val = get_value(opt, x[e])
+                    push!(sol, val)
+                    if val > 1e-5
+                        println("x[$e] = $val")
+                    end
+                end
+                @test reduce(&,
+                    sol .≈ [1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+                )
+            end
         end
     end
 end

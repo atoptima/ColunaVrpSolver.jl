@@ -42,7 +42,9 @@ function add_resource!(graph::VrpGraph; main = false)
     return Int(id)
 end
 
-function set_resource_bounds!(graph::VrpGraph, vertid::Int, resid::Int, lb::Float64, ub::Float64)
+function set_resource_bounds!(
+    graph::VrpGraph, vertid::Int, resid::Int, lb::Float64, ub::Float64
+)
     vid = (vertid == graph.orig_sink) ? graph.new_sink : vertid
     ccall(
         (:setResourceBounds_c, path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64, Float64),
@@ -77,11 +79,8 @@ function add_arc_var_mapping!(graph::VrpGraph, arcid::Int, var::VariableRef)
 end
 
 function add_graph!(model::T, graph::VrpGraph) where {T <: AbstractVrpModel}
-    # Instantiate an RCSP solver
-    solver = ccall((:createAndPrepareSolver_c, path), Ptr{Cvoid}, (Ptr{Cvoid},), graph.cptr)
-
     # Add it to the VRP model
-    push!(model.rcsp_instances, RCSPProblem(graph, solver))
+    push!(model.rcsp_instances, RCSPProblem(graph, Ptr{Cvoid}(0)))
     graph.id = length(model.rcsp_instances)
     return
 end
@@ -111,4 +110,64 @@ function run_rcsp_pricing(rcsp::RCSPProblem, phase::Int, var_rcosts::Vector{Floa
         push!(paths, [Int(a) for a in arcs[(starts[p] + 1):starts[p + 1]]])
     end
     return paths
+end
+
+function set_vertex_packing_sets!(
+    model::T, psets::Vector{Vector{Tuple{VrpGraph, Int}}}
+)  where {T <: AbstractVrpModel}
+    sizes = Cint.(length.(psets))
+    graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
+    vertids = vcat([Cint.(getindex.(ps, 2)) for ps in psets]...)
+    ccall(
+        (:setVertexPackingSets_c, path), Cvoid,
+        (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
+        Cint(length(psets)), sizes, graphs, vertids
+    )
+    # TODO: save a dictionaty of (graph, vertex) -> psetId in model for CC separation
+end
+
+function define_elementarity_sets_distance_matrix!(
+    ::T, graph::VrpGraph, distmatrix::Vector{Vector{Float64}}
+) where {T <: AbstractVrpModel}
+    # check if the vector of vectors distmatrix is a square matrix
+    lengths = length.(distmatrix)
+    nb_psets = length(lengths)
+    if !all(lengths .== nb_psets)
+        @error "Distance matrix is not a square matrix"
+    end
+
+    # set the distance matrix
+    dists = vcat(distmatrix...)
+    ccall(
+        (:defineElemSetsDistMatrix_c, path), Cvoid, (Ptr{Cvoid}, Cint, Ptr{Float64}),
+        graph.cptr, nb_psets, dists
+    )
+end
+
+function add_capacity_cut_separator!(
+    model::T, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph,Int}}, Float64}}, capacity::Float64
+) where {T <: AbstractVrpModel}
+    # get only the first pair (G, i) of each packing set because they all should share the same
+    # packing set id
+    graphs = [ps[1][1].cptr for (ps, _) in demandsets]
+    vertids = [Cint(ps[1][2]) for (ps, _) in demandsets]
+
+    # call the C++ function to create the capacity cut separator and add it to the model
+    demands = [d for (_, d) in demandsets]
+    model.rcc_separator = ccall(
+        (:addCapacityCutSeparator_c, path), Ptr{Cvoid},
+        (Cint, Ref{Ptr{Cvoid}}, Ptr{Cint}, Ptr{Float64}, Float64),
+        Cint(length(demandsets)), graphs, vertids, demands, capacity
+    )
+end
+
+function build_solvers!(model::T) where {T <: AbstractVrpModel}
+    # Instantiate an RCSP solver for each RCSP problem instance
+    for prob in model.rcsp_instances
+        prob.solver = ccall(
+            (:createAndPrepareSolver_c, path), Ptr{Cvoid}, (Ptr{Cvoid},),
+            prob.graph.cptr
+        )
+    end
+    return
 end

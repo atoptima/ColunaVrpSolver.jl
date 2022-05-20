@@ -4,6 +4,7 @@ mutable struct VrpOptimizer
 end
 
 function VrpOptimizer(model::VrpModel, _::String, _::String)
+    build_solvers!(model)
     graphs = getfield.(model.rcsp_instances, :graph)
 
     # add the mapped arc-variables to the model
