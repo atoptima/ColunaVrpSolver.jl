@@ -54,6 +54,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
                 cbdata, __arc[g, a]
             )
         end
+        setup_rc = Coluna.MathProg.getcurcost(cbdata.form, cbdata.form.duty_data.setup_var)
         # @show arc_rcosts
 
         # call the pricing solver
@@ -61,6 +62,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
         # @show paths
 
         # submit the priced paths to Coluna
+        min_rc = Inf
         for p in paths
             solvals = Float64[]
             solvars = JuMP.VariableRef[]
@@ -70,6 +72,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
                 arccount[a] = get(arccount, a, 0) + 1
                 rc += arc_rcosts[g][a + 1]
             end
+            min_rc = min(rc, min_rc)
             for a in keys(arccount)
                 push!(solvals, Float64(arccount[a]))
                 push!(solvars, __arc[g, a])
@@ -79,6 +82,9 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
                 rc, solvars, solvals
             )
         end
+        MathOptInterface.submit(
+            model.formulation, BlockDecomposition.PricingDualBound(cbdata), min_rc + setup_rc
+        )
     end
 
     # set the solution multiplicities and the pricing callback function
