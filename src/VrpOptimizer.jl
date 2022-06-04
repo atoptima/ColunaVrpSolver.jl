@@ -3,6 +3,95 @@ mutable struct VrpOptimizer
     status_dict::Dict{MathOptInterface.TerminationStatusCode, Symbol}
 end
 
+struct PathVarData <: BlockDecomposition.AbstractCustomData
+    graphid::Int
+    arcids::Vector{Int}
+end
+
+struct VrpSolution
+    paths::Vector{Tuple{Float64, PathVarData}}
+end
+
+# Define the function to perform pricing via RCSP library
+function solve_RCSP_pricing(
+    cbdata::CBDataType, model::VrpModel, A::Vector{Vector{Int}}, __arc::VarRefArrayType,
+    arc_rcosts::Vector{Vector{Float64}}, ismapped::Vector{Vector{Bool}}
+) where {CBDataType, VarRefArrayType}
+
+    # Get the reduced costs of arc variables
+    g = BlockDecomposition.callback_spid(cbdata, model.formulation)
+    for a in A[g]
+        arc_rcosts[g][a + 1] = BlockDecomposition.callback_reduced_cost(
+            cbdata, __arc[g, a]
+        )
+    end
+    setup_rc = Coluna.MathProg.getcurcost(cbdata.form, cbdata.form.duty_data.setup_var)
+    # @show arc_rcosts
+
+    # call the pricing solver
+    paths = run_rcsp_pricing(model.rcsp_instances[g], 0, arc_rcosts[g])
+    # @show paths
+
+    # submit the priced paths to Coluna
+    min_rc = Inf
+    for p in paths
+        solvals = Float64[]
+        solvars = JuMP.VariableRef[]
+        arccount = Dict{Int, Int}()
+        rc = 0.0
+        for a in p
+            arccount[a] = get(arccount, a, 0) + 1
+            rc += arc_rcosts[g][a + 1]
+        end
+        min_rc = min(rc, min_rc)
+        for a in keys(arccount)
+            if ismapped[g][a + 1]
+                push!(solvals, Float64(arccount[a]))
+                push!(solvars, __arc[g, a])
+            end
+        end
+        MathOptInterface.submit(
+            model.formulation, BlockDecomposition.PricingSolution(cbdata),
+            rc, solvars, solvals, PathVarData(g.indice, p)
+        )
+    end
+    MathOptInterface.submit(
+        model.formulation, BlockDecomposition.PricingDualBound(cbdata),
+        min_rc + setup_rc # FIXME: only when Coluna adds setup_rc internally
+    )
+end
+
+# Define the function to separate capacity cuts via RCSP library
+function separate_capacity_cuts(
+    cbdata::CBDataType, model::VrpModel, __arc::VarRefArrayType, ismapped::Vector{Vector{Bool}}
+) where {CBDataType, VarRefArrayType}
+    # get the solution of the current relaxation
+    sol = VrpSolution(Tuple{Float64, PathVarData}[])
+    for (varid, varval) in cbdata.orig_sol
+        var = Coluna.MathProg.getvar(cbdata.form, varid)
+        if typeof(var.custom_data) == PathVarData
+            push!(sol.paths, (varval, var.custom_data))
+        end
+    end
+
+    # call the separator provided by the library
+    cuts = run_capacity_cut_separators(model, sol)
+
+    # add the separated cuts
+    for cut in cuts
+        moi_cut = ScalarConstraint(
+            sum(
+                m.coeff *  __arc[m.graphid, m.arcid] for m in cut.members
+                if ismapped[m.graphid][m.arcid + 1]
+            ),
+            domain(cut)
+        )
+        MathOptInterface.submit(
+            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut
+        )
+    end
+end
+
 function VrpOptimizer(model::VrpModel, _::String, _::String)
     build_solvers!(model)
     graphs = getfield.(model.rcsp_instances, :graph)
@@ -31,7 +120,9 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     # - keep a Dict of VariableRefs to ids
     # - use "obj = objective_function(m, AffExpr)" and "coefficient(obj, x)" to get
     #   the variable costs (also used when they are mapped)
-    # - inform the RCSP solver about mappings and variable costs (for enumeration)
+    # - inform the RCSP solver about mappings and variable costs
+    # - Convert the arcs to mapped variables in the pricing callback
+    # - Treat the arcids as varids in the capacity cut separation
     @constraint(
         model.formulation, __map[v in collect(keys(map_inverse))],
         v == sum(__arc[g, a] for (g, a) in map_inverse[v])
@@ -41,60 +132,37 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     @dantzig_wolfe_decomposition(model.formulation, decomp, VrpGraphs)
     model.bd_graphs[1] = decomp
 
-    # preallocate a vector to store the reduced costs
-    arc_rcosts = [zeros(Float64, graph.max_arcid + 1) for graph in graphs]
+    # Register the custom variable data
+    BlockDecomposition.customvars!(model.formulation, PathVarData)
 
-    # Define the function to perform pricing via RCSP solver
-    function solve_RCSP_pricing(cbdata)
-
-        # Get the reduced costs of arc variables
-        g = BlockDecomposition.callback_spid(cbdata, model.formulation)
+    # build a structure to quickly filter non-mapped arc ids
+    ismapped = [zeros(Bool, graph.max_arcid + 1) for graph in graphs]
+    for g in 1:length(A)
         for a in A[g]
-            arc_rcosts[g][a + 1] = BlockDecomposition.callback_reduced_cost(
-                cbdata, __arc[g, a]
-            )
+            ismapped[g][a + 1] = true
         end
-        setup_rc = Coluna.MathProg.getcurcost(cbdata.form, cbdata.form.duty_data.setup_var)
-        # @show arc_rcosts
+    end
 
-        # call the pricing solver
-        paths = run_rcsp_pricing(model.rcsp_instances[g], 0, arc_rcosts[g])
-        # @show paths
-
-        # submit the priced paths to Coluna
-        min_rc = Inf
-        for p in paths
-            solvals = Float64[]
-            solvars = JuMP.VariableRef[]
-            arccount = Dict{Int, Int}()
-            rc = 0.0
-            for a in p
-                arccount[a] = get(arccount, a, 0) + 1
-                rc += arc_rcosts[g][a + 1]
-            end
-            min_rc = min(rc, min_rc)
-            for a in keys(arccount)
-                push!(solvals, Float64(arccount[a]))
-                push!(solvars, __arc[g, a])
-            end
-            MathOptInterface.submit(
-                model.formulation, BlockDecomposition.PricingSolution(cbdata),
-                rc, solvars, solvals
-            )
-        end
-        MathOptInterface.submit(
-            model.formulation, BlockDecomposition.PricingDualBound(cbdata), min_rc + setup_rc
+    # set the capacity cut callback
+    if !isempty(model.rcc_separators)
+        MathOptInterface.set(
+            model.formulation, MathOptInterface.UserCutCallback(),
+            (cbdata -> separate_capacity_cuts(cbdata, model, __arc, ismapped))
         )
     end
 
-    # set the solution multiplicities and the pricing callback function
-    # for each graph
+    # preallocate a vector to store the reduced costs
+    arc_rcosts = [zeros(Float64, graph.max_arcid + 1) for graph in graphs]
+
+    # set the solution multiplicities and the pricing callback for each graph
     subproblems = getsubproblems(decomp)
     for g in 1:length(graphs)
         (L, U) = graphs[g].bounds
         specify!(
             subproblems[g], lower_multiplicity = L, upper_multiplicity = U,
-            solver = solve_RCSP_pricing
+            solver = (
+                cbdata -> solve_RCSP_pricing(cbdata, model, A, __arc, arc_rcosts, ismapped)
+            )
         )
     end
 

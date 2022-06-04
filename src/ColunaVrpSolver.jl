@@ -9,6 +9,8 @@ module ColunaVrpSolver
     export optimize!, get_objective_value, get_value
 
     include("VrpGraph.jl")
+    include("RCSPProblem.jl")
     include("VrpModel.jl")
     include("VrpOptimizer.jl")
+    include("CapacityCut.jl")
 end

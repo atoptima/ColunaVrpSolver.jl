@@ -90,8 +90,7 @@ function run_rcsp_integration_tests()
                 with_ngpaths = ng, with_capacitycuts = cc
             )
             if cc
-                @test toy.rcc_separator != Ptr{Cvoid}
-                break
+                @test toy.rcc_separators[1] != Ptr{Cvoid}(0)
             end
             opt = VrpOptimizer(toy, "", "toy")
             set_cutoff!(opt, 100.0)
