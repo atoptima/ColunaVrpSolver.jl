@@ -11,6 +11,7 @@ mutable struct VrpGraph
     new_sink::Int
     mappings::Dict{Int, Vector{VariableRef}}
     max_arcid::Int
+    is_preproc::Bool
 end
 
 function VrpGraph(
@@ -27,7 +28,7 @@ function VrpGraph(
         Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink)
     )
     graph = VrpGraph(
-        0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}(), 0
+        0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}(), 0, false
     )
     return graph
 end
@@ -74,19 +75,24 @@ function add_arc_var_mapping!(graph::VrpGraph, arcid::Int, var::VariableRef)
 end
 
 function add_graph!(model::T, graph::VrpGraph) where {T <: AbstractVrpModel}
-    # Preprocess the graph
-    if ccall((:preprocessGraph_c, path), Cint, (Ptr{Cvoid},), graph.cptr) == 0
-        return
-    end
-
-    # Add it to the VRP model
+    # Add the graph to the VRP model
     push!(model.rcsp_instances, RCSPProblem(graph))
+
+    # Save the graph id and return
     graph.id = length(model.rcsp_instances)
     return
 end
 
+function preprocess_graph!(graph::VrpGraph)
+    if !graph.is_preproc
+        ccall((:preprocessGraph_c, path), Cint, (Ptr{Cvoid},), graph.cptr)
+        graph.is_preproc = true
+    end
+    return
+end
+
 function set_vertex_packing_sets!(
-    model::T, psets::Vector{Vector{Tuple{VrpGraph, Int}}}
+    ::T, psets::Vector{Vector{Tuple{VrpGraph, Int}}}
 )  where {T <: AbstractVrpModel}
     sizes = Cint.(length.(psets))
     graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
@@ -96,7 +102,6 @@ function set_vertex_packing_sets!(
         (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
         Cint(length(psets)), sizes, graphs, vertids
     )
-    # TODO: save a dictionaty of (graph, vertex) -> psetId in model for CC separation
 end
 
 function define_elementarity_sets_distance_matrix!(

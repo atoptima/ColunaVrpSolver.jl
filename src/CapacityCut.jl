@@ -19,6 +19,11 @@ function add_capacity_cut_separator!(
     model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph,Int}}, Float64}},
     capacity::Float64
 )
+    # make sure that all graphs are preprocessed
+    for rcsp in model.rcsp_instances
+        preprocess_graph!(rcsp.graph)
+    end
+    
     # get only the first pair (G, i) of each packing set because they all should share the same
     # packing set id
     graphs = [ps[1][1].cptr for (ps, _) in demandsets]
@@ -88,13 +93,16 @@ function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
                 cut = CapacityCut(
                     rhss[c], (senses[c] == 0) ? :>= : :<=, CapacityCutMember[]
                 )
+                nextcut!(model.coeffmanager, model)
                 for m in cut_starts[c]:(cut_starts[c+1] - 1)
-                    push!(cut.members, CapacityCutMember(
-                        cut_graphids[m + 1] + 1, cut_arcids[m + 1], cut_coeffs[m + 1]
-                    ))
+                    g = cut_graphids[m + 1] + 1
+                    a = Int(cut_arcids[m + 1])
+                    if !hascoeff(model.coeffmanager, g, a)
+                        push!(cut.members, CapacityCutMember(g, a, cut_coeffs[m + 1]))
+                        regcoeff!(model.coeffmanager, g, a)
+                    end
                 end
                 isempty(cut.members) && continue
-                @show cut
                 push!(cuts, cut)
             end
         end

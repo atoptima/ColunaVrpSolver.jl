@@ -63,7 +63,7 @@ end
 
 # Define the function to separate capacity cuts via RCSP library
 function separate_capacity_cuts(
-    cbdata::CBDataType, model::VrpModel, __arc::VarRefArrayType, ismapped::Vector{Vector{Bool}}
+    cbdata::CBDataType, model::VrpModel, __arc::VarRefArrayType
 ) where {CBDataType, VarRefArrayType}
     # get the solution of the current relaxation
     sol = VrpSolution(Tuple{Float64, PathVarData}[])
@@ -79,10 +79,19 @@ function separate_capacity_cuts(
 
     # add the separated cuts
     for cut in cuts
+        for m in cut.members
+            val = callback_value(cbdata, __arc[m.graphid, m.arcid])
+            # if val > 1e-5
+            #     @show m.coeff, m.graphid, m.arcid, val
+            # end
+        end
+        lhs = sum(
+            m.coeff * callback_value(cbdata, __arc[m.graphid, m.arcid]) for m in cut.members
+        )
+        # @show lhs, domain(cut)
         moi_cut = ScalarConstraint(
             sum(
                 m.coeff *  __arc[m.graphid, m.arcid] for m in cut.members
-                if ismapped[m.graphid][m.arcid + 1]
             ),
             domain(cut)
         )
@@ -147,7 +156,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::String)
     if !isempty(model.rcc_separators)
         MathOptInterface.set(
             model.formulation, MathOptInterface.UserCutCallback(),
-            (cbdata -> separate_capacity_cuts(cbdata, model, __arc, ismapped))
+            (cbdata -> separate_capacity_cuts(cbdata, model, __arc))
         )
     end
 

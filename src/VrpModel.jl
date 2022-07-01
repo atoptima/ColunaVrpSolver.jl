@@ -1,8 +1,36 @@
+# Data structure to avoid cut coefficient repetitions minimizing allocations
+mutable struct CutCoeffManager
+    has_coeff::Vector{Vector{Int}}
+    nb_cuts::Int
+end
+
+CutCoeffManager() = CutCoeffManager(Vector{Int}[], 0)
+
+function nextcut!(ccm::CutCoeffManager, model::T) where {T <: AbstractVrpModel}
+    ccm.nb_cuts += 1
+    if isempty(model.coeffmanager.has_coeff)
+        resize!(model.coeffmanager.has_coeff, length(model.rcsp_instances))
+        for g in 1:length(model.rcsp_instances)
+            model.coeffmanager.has_coeff[g] = zeros(
+                Int, model.rcsp_instances[g].graph.max_arcid + 1
+            )
+        end
+    end
+end
+
+hascoeff(ccm::CutCoeffManager, g::Int, a::Int) = (ccm.has_coeff[g][a + 1] == ccm.nb_cuts)
+
+function regcoeff!(ccm::CutCoeffManager, g::Int, a::Int)
+    ccm.has_coeff[g][a + 1] = ccm.nb_cuts
+    return
+end
+
 mutable struct VrpModel <: AbstractVrpModel
     formulation::JuMP.Model
     rcsp_instances::Vector{RCSPProblem}
     bd_graphs::Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}
     rcc_separators::Vector{Ptr{Cvoid}}
+    coeffmanager::CutCoeffManager
 end
 
 function VrpModel()
@@ -37,6 +65,6 @@ function VrpModel()
     return VrpModel(
         form, RCSPProblem[],
         Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[]
+        Ptr{Cvoid}[], CutCoeffManager()
     )
 end
