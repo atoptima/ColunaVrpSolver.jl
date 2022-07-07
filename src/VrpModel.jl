@@ -68,3 +68,7 @@ function VrpModel()
         Ptr{Cvoid}[], CutCoeffManager()
     )
 end
+
+function set_branching_priority!(::VrpModel, ::String, ::Int)
+    @warn "set_branching_priority! is not implemented... ignoring it."
+end

@@ -1,5 +1,3 @@
-using JuMP
-
 function run_rcsp_integration_tests()
 
     # Define the toy CVRP instance data 

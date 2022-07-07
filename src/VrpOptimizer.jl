@@ -101,7 +101,7 @@ function separate_capacity_cuts(
     end
 end
 
-function VrpOptimizer(model::VrpModel, _::String, _::String)
+function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
     build_solvers!(model)
     graphs = getfield.(model.rcsp_instances, :graph)
 
