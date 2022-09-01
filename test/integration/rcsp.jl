@@ -59,6 +59,7 @@ function run_rcsp_integration_tests()
 
         for ng in (false, true)
             # build a toy VRP model with one graph
+            # FIXME
             toy, _, id_to_arc, max_arcid = build_toy_model(with_ngpaths = ng)
             ColunaVrpSolver.build_solvers!(toy)
             rcsp = toy.rcsp_instances[1] 
@@ -68,7 +69,7 @@ function run_rcsp_integration_tests()
             # between arc ids and variable ids (valid only for explicit master)
             var_rcosts = zeros(Float64, max_arcid + 1)
             for (arcid, (i, j)) in id_to_arc
-                var_rcosts[arcid + 1] = abs(j - i) - 100.0 * d(j)
+                var_rcosts[arcid + 1] = abs(j - i) - 50.0 * (d(i) + d(j))
             end
             paths = ColunaVrpSolver.run_rcsp_pricing(rcsp, 0, var_rcosts)
             if ng

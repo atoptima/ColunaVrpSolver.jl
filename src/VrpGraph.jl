@@ -3,19 +3,36 @@ global path = "$(ENV["RCSP_LIB_PATH"])"
 
 abstract type AbstractVrpModel end
 
-mutable struct VrpGraph
+mutable struct VrpGraph{T}
     id::Int
     cptr::Ptr{Cvoid}
     bounds::Tuple{Float64, Float64}
     orig_sink::Int
     new_sink::Int
-    mappings::Dict{Int, Vector{VariableRef}}
-    max_arcid::Int
+    mappings::Vector{Vector{VariableRef}}
     is_preproc::Bool
+    model::T
+end
+
+function get_mappedvarids(g::VrpGraph, arcid::Int)
+    if !isassigned(g.mappings, arcid + 1)
+        return VariableRef[]
+    end
+    return g.mappings[arcid + 1]
+end
+
+function get_mappedvarids!(g::VrpGraph, arcid::Int)
+    if !isassigned(g.mappings, arcid + 1)
+        if arcid >= length(g.mappings)
+            resize!(g.mappings, arcid + 1)
+        end
+        g.mappings[arcid + 1] = VariableRef[]
+    end
+    return g.mappings[arcid + 1]
 end
 
 function VrpGraph(
-    _::T, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int, Int}
+    model::T, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int, Int}
 ) where T
     new_sink = sink
     vertices_ = copy(vertices)
@@ -28,7 +45,7 @@ function VrpGraph(
         Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink)
     )
     graph = VrpGraph(
-        0, cptr_, Float64.(bounds), sink, new_sink, Dict{Int, Vector{VariableRef}}(), 0, false
+        0, cptr_, Float64.(bounds), sink, new_sink, Vector{VariableRef}[], false, model
     )
     return graph
 end
@@ -51,11 +68,10 @@ end
 
 function add_arc!(graph::VrpGraph, tail::Int, head::Int)
     h = (head == graph.orig_sink) ? graph.new_sink : head
-    id = ccall(
+    id = Int(ccall(
         (:addArc_c, path), Cint, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(tail), Cint(h)
-    )
-    graph.max_arcid = max(graph.max_arcid, Int(id))
-    return Int(id)
+    ))
+    return id
 end
 
 function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Float64)
@@ -66,12 +82,16 @@ function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Flo
     return
 end
 
-function add_arc_var_mapping!(graph::VrpGraph, arcid::Int, var::VariableRef)
-    mapped = get(graph.mappings, arcid, VariableRef[])
-    if isempty(mapped)
-        graph.mappings[arcid] = mapped
-    end
+function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) where {T}
+    varid = getvarid!(graph.model, var)
+    cost = coefficient(objective_function(graph.model.formulation), var)
+    ccall(
+        (:addArcVarMapping_c, path), Cvoid, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(arcid),
+        Cint(varid), cost
+    )
+    mapped = get_mappedvarids!(graph.mappings, arcid)
     push!(mapped, var)
+    return
 end
 
 function add_graph!(model::T, graph::VrpGraph) where {T <: AbstractVrpModel}

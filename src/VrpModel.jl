@@ -1,27 +1,24 @@
 # Data structure to avoid cut coefficient repetitions minimizing allocations
 mutable struct CutCoeffManager
-    has_coeff::Vector{Vector{Int}}
+    has_coeff::Vector{Int}
     nb_cuts::Int
 end
 
-CutCoeffManager() = CutCoeffManager(Vector{Int}[], 0)
+CutCoeffManager() = CutCoeffManager(Int[], 0)
 
 function nextcut!(ccm::CutCoeffManager, model::T) where {T <: AbstractVrpModel}
     ccm.nb_cuts += 1
     if isempty(model.coeffmanager.has_coeff)
-        resize!(model.coeffmanager.has_coeff, length(model.rcsp_instances))
-        for g in 1:length(model.rcsp_instances)
-            model.coeffmanager.has_coeff[g] = zeros(
-                Int, model.rcsp_instances[g].graph.max_arcid + 1
-            )
-        end
+        model.coeffmanager.has_coeff = zeros(
+            Int, get_maxarcid(model.rcsp_instances[g].graph) + 1 # FIXME
+        )
     end
 end
 
-hascoeff(ccm::CutCoeffManager, g::Int, a::Int) = (ccm.has_coeff[g][a + 1] == ccm.nb_cuts)
+hascoeff(ccm::CutCoeffManager, v::Int) = (ccm.has_coeff[v] == ccm.nb_cuts)
 
-function regcoeff!(ccm::CutCoeffManager, g::Int, a::Int)
-    ccm.has_coeff[g][a + 1] = ccm.nb_cuts
+function regcoeff!(ccm::CutCoeffManager, v::Int)
+    ccm.has_coeff[v] = ccm.nb_cuts
     return
 end
 
@@ -31,6 +28,23 @@ mutable struct VrpModel <: AbstractVrpModel
     bd_graphs::Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}
     rcc_separators::Vector{Ptr{Cvoid}}
     coeffmanager::CutCoeffManager
+    variables_by_id::Vector{VariableRef}
+    varids_by_var::Dict{VariableRef, Int}
+end
+
+get_maxvarid(model::VrpModel) = length(model.variables)
+
+getvar(model::VrpModel, id::Int) = model.variables[id]
+
+function getvarid!(model::VrpModel, var::VariableRef)
+    new_varid = get_maxvarid(model) + 1
+    varid = get(model.varids_by_var, var, new_varid)
+    if varid == new_varid
+        resize!(model.variables_by_id, new_varid)
+        model.variables_by_id[new_varid] = var
+        model.varids_by_var[var] = new_varid
+    end
+    return varid
 end
 
 function VrpModel()
@@ -65,7 +79,7 @@ function VrpModel()
     return VrpModel(
         form, RCSPProblem[],
         Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[], CutCoeffManager()
+        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[]
     )
 end
 
