@@ -15,7 +15,9 @@ end
 # Define the function to perform pricing via RCSP library
 function solve_RCSP_pricing(cbdata::CB, model::VrpModel, rcosts::Vector{Float64}) where {CB}
     # Get the reduced costs
+    @show model.variables_by_id
     for vid in 1:get_maxvarid(model)
+        @show vid
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
             cbdata, model.variables_by_id[vid]
         )
@@ -100,7 +102,8 @@ function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
     build_solvers!(model)
 
     # apply the decomposition and store the axis
-    @axis(VrpGraphs, 1:length(graphs))
+    nb_graphs = length(model.rcsp_instances)
+    @axis(VrpGraphs, 1:nb_graphs)
     @dantzig_wolfe_decomposition(model.formulation, decomp, VrpGraphs)
     model.bd_graphs[1] = decomp
 
@@ -110,7 +113,7 @@ function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
     # Set the mapped variables as representatives
     subproblems = getsubproblems(decomp)
     for var in model.variables_by_id
-        subproblemrepresentative(var, Ref(subproblems))
+        subproblemrepresentative(var, subproblems)
     end
 
     # set the capacity cut callback
@@ -125,9 +128,8 @@ function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
     rcosts = zeros(Float64, get_maxvarid(model))
 
     # set the solution multiplicities and the pricing callback for each graph
-    subproblems = getsubproblems(decomp)
-    for g in 1:length(graphs)
-        (L, U) = graphs[g].bounds
+    for g in 1:nb_graphs
+        (L, U) = model.rcsp_instances[g].graph.bounds
         specify!(
             subproblems[g], lower_multiplicity = L, upper_multiplicity = U,
             solver = (

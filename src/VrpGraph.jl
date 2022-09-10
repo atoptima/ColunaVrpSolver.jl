@@ -86,10 +86,10 @@ function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) 
     varid = getvarid!(graph.model, var)
     cost = coefficient(objective_function(graph.model.formulation), var)
     ccall(
-        (:addArcVarMapping_c, path), Cvoid, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(arcid),
-        Cint(varid), cost
+        (:addArcVarMapping_c, path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64),
+        graph.cptr, Cint(arcid), Cint(varid - 1), cost
     )
-    mapped = get_mappedvarids!(graph.mappings, arcid)
+    mapped = get_mappedvarids!(graph, arcid)
     push!(mapped, var)
     return
 end
@@ -112,7 +112,7 @@ function preprocess_graph!(graph::VrpGraph)
 end
 
 function set_vertex_packing_sets!(
-    ::T, psets::Vector{Vector{Tuple{VrpGraph, Int}}}
+    ::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}}
 )  where {T <: AbstractVrpModel}
     sizes = Cint.(length.(psets))
     graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)

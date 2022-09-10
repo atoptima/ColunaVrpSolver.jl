@@ -32,9 +32,9 @@ mutable struct VrpModel <: AbstractVrpModel
     varids_by_var::Dict{VariableRef, Int}
 end
 
-get_maxvarid(model::VrpModel) = length(model.variables)
+get_maxvarid(model::VrpModel) = length(model.variables_by_id)
 
-getvar(model::VrpModel, id::Int) = model.variables[id]
+getvar(model::VrpModel, id::Int) = model.variables_by_id[id]
 
 function getvarid!(model::VrpModel, var::VariableRef)
     new_varid = get_maxvarid(model) + 1
@@ -54,10 +54,11 @@ function VrpModel()
         primal_heuristics = [],
     )
     branching = Coluna.Algorithm.StrongBranching()
+    prodscore = Coluna.Algorithm.ProductScore()
     push!(branching.phases, Coluna.Algorithm.BranchingPhase(
-        20, Coluna.Algorithm.RestrMasterLPConquer())
+        20, Coluna.Algorithm.RestrMasterLPConquer(), prodscore)
     )
-    push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colgen))
+    push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colgen, prodscore))
     push!(branching.rules, Coluna.Algorithm.PrioritisedBranchingRule(
         Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0)
     )
@@ -79,7 +80,7 @@ function VrpModel()
     return VrpModel(
         form, RCSPProblem[],
         Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[]
+        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[], Dict{VariableRef, Int64}()
     )
 end
 
