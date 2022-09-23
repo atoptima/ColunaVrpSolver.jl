@@ -9,9 +9,7 @@ CutCoeffManager() = CutCoeffManager(Int[], 0)
 function nextcut!(ccm::CutCoeffManager, model::T) where {T <: AbstractVrpModel}
     ccm.nb_cuts += 1
     if isempty(model.coeffmanager.has_coeff)
-        model.coeffmanager.has_coeff = zeros(
-            Int, get_maxarcid(model.rcsp_instances[g].graph) + 1 # FIXME
-        )
+        model.coeffmanager.has_coeff = zeros(Int, get_maxvarid(model))
     end
 end
 
@@ -49,8 +47,15 @@ end
 
 function VrpModel()
     # Create a Coluna model
-    colgen = Coluna.Algorithm.ColCutGenConquer(
-        stages = [Coluna.Algorithm.ColumnGeneration()],
+    colgenstages = Coluna.Algorithm.ColumnGeneration[]
+    for stage in 1:3
+        push!(colgenstages, Coluna.Algorithm.ColumnGeneration(
+            pricing_prob_solve_alg = Coluna.Algorithm.SolveIpForm(optimizer_id = stage),
+            smoothing_stabilization = 1.0
+        ))
+    end
+    colcutgen = Coluna.Algorithm.ColCutGenConquer(
+        stages = colgenstages,
         primal_heuristics = [],
     )
     branching = Coluna.Algorithm.StrongBranching()
@@ -58,7 +63,7 @@ function VrpModel()
     push!(branching.phases, Coluna.Algorithm.BranchingPhase(
         20, Coluna.Algorithm.RestrMasterLPConquer(), prodscore)
     )
-    push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colgen, prodscore))
+    push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colcutgen, prodscore))
     push!(branching.rules, Coluna.Algorithm.PrioritisedBranchingRule(
         Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0)
     )
@@ -68,13 +73,13 @@ function VrpModel()
         "params" => Coluna.Params(
             solver = Coluna.Algorithm.TreeSearchAlgorithm(
                 branchingtreefile = "BaPTree.dot",
-                conqueralg = colgen,
+                conqueralg = colcutgen,
                 dividealg = branching
             )
         ),
         "default_optimizer" => Gurobi.Optimizer # for the master & the subproblems
     )
-    form = BlockModel(coluna, direct_model = true)
+    form = BlockModel(coluna) # , direct_model = true)
 
     # Return the VrpSolver model containing the Coluna and RCSP models
     return VrpModel(

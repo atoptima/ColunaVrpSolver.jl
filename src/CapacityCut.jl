@@ -15,7 +15,7 @@ domain(cut::CapacityCut) = (
 )
 
 function add_capacity_cut_separator!(
-    model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph,Int}}, Float64}},
+    model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{VrpModel},Int}}, Float64}},
     capacity::Float64
 )
     # make sure that all graphs are preprocessed
@@ -99,7 +99,7 @@ function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
                 nextcut!(model.coeffmanager, model)
                 for m in cut_starts[c]:(cut_starts[c+1] - 1)
                     g = cut_graphids[m + 1] + 1
-                    v = Int(cut_varids[m + 1])
+                    v = Int(cut_varids[m + 1] + 1)
                     if !hascoeff(model.coeffmanager, v)
                         push!(cut.members, CapacityCutMember(v, cut_coeffs[m + 1]))
                         regcoeff!(model.coeffmanager, v)

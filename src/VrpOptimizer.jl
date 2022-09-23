@@ -13,11 +13,11 @@ struct VrpSolution
 end
 
 # Define the function to perform pricing via RCSP library
-function solve_RCSP_pricing(cbdata::CB, model::VrpModel, rcosts::Vector{Float64}) where {CB}
+function solve_RCSP_pricing(
+    cbdata::CB, stage::Int, model::VrpModel, rcosts::Vector{Float64}
+) where {CB}
     # Get the reduced costs
-    @show model.variables_by_id
     for vid in 1:get_maxvarid(model)
-        @show vid
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
             cbdata, model.variables_by_id[vid]
         )
@@ -26,7 +26,10 @@ function solve_RCSP_pricing(cbdata::CB, model::VrpModel, rcosts::Vector{Float64}
 
     # call the pricing solver
     rcsp = model.rcsp_instances[BlockDecomposition.callback_spid(cbdata, model.formulation)]
-    paths = run_rcsp_pricing(rcsp, 0, rcosts)
+    paths = run_rcsp_pricing(rcsp, stage - 1, rcosts)
+    if !isempty(paths)
+        print("<st=$(stage - 1)>")  # TODO: move this to the Coluna's log
+    end
     # @show paths
 
     # submit the priced paths to Coluna
@@ -50,7 +53,7 @@ function solve_RCSP_pricing(cbdata::CB, model::VrpModel, rcosts::Vector{Float64}
         end
         MathOptInterface.submit(
             model.formulation, BlockDecomposition.PricingSolution(cbdata),
-            rc, solvars, solvals, PathVarData(g.indice, p)
+            rc, solvars, solvals, PathVarData(rcsp.graph.id, p)
         )
     end
     MathOptInterface.submit(
@@ -132,9 +135,9 @@ function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
         (L, U) = model.rcsp_instances[g].graph.bounds
         specify!(
             subproblems[g], lower_multiplicity = L, upper_multiplicity = U,
-            solver = (
-                cbdata -> solve_RCSP_pricing(cbdata, model, rcosts)
-            )
+            solver = [
+                cbdata -> solve_RCSP_pricing(cbdata, stage, model, rcosts) for stage in 1:3
+            ]
         )
     end
 
