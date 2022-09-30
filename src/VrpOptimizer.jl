@@ -58,7 +58,7 @@ function solve_RCSP_pricing(
     end
     MathOptInterface.submit(
         model.formulation, BlockDecomposition.PricingDualBound(cbdata),
-        min_rc
+        (stage == 1) ? min_rc : -Inf
     )
 end
 
