@@ -1,6 +1,5 @@
 struct CapacityCutMember
-    graphid::Int
-    arcid::Int
+    varid::Int
     coeff::Float64
 end
 
@@ -16,7 +15,7 @@ domain(cut::CapacityCut) = (
 )
 
 function add_capacity_cut_separator!(
-    model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph,Int}}, Float64}},
+    model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{VrpModel},Int}}, Float64}},
     capacity::Float64
 )
     # make sure that all graphs are preprocessed
@@ -25,7 +24,11 @@ function add_capacity_cut_separator!(
     end
     
     # get only the first pair (G, i) of each packing set because they all should share the same
-    # packing set id
+    # packing set id, which is the id used inside the RCSP C++ module to assign demands.
+    # Note: Fixing this would require to change the VrpSolver user interface, making it less
+    #       intuitive. In the current VrpSolver interface the same vertex grouping as the one
+    #       defined by the packing sets is repeated in the argument demandsets to avoid working
+    #       with packing set ids, and mimic the mathematical notation used in papers.
     graphs = [ps[1][1].cptr for (ps, _) in demandsets]
     vertids = [Cint(ps[1][2]) for (ps, _) in demandsets]
 
@@ -77,7 +80,7 @@ function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
             rhss = Vector{Cint}(undef, nb_cuts)
             cut_starts = Vector{Cint}(undef, nb_cuts + 1)
             cut_graphids = Vector{Cint}(undef, bufsize[1])
-            cut_arcids = Vector{Cint}(undef, bufsize[1])
+            cut_varids = Vector{Cint}(undef, bufsize[1])
             cut_coeffs = Vector{Float64}(undef, bufsize[1])
             ccall(
                 (:getCapacityCuts_c, path), Cvoid,
@@ -85,7 +88,7 @@ function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
                     Ptr{Cvoid}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint},
                     Ptr{Float64}
                 ),
-                sep, senses, rhss, cut_starts, cut_graphids, cut_arcids, cut_coeffs
+                sep, senses, rhss, cut_starts, cut_graphids, cut_varids, cut_coeffs
             )
 
             # convert and store the cuts
@@ -96,10 +99,10 @@ function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
                 nextcut!(model.coeffmanager, model)
                 for m in cut_starts[c]:(cut_starts[c+1] - 1)
                     g = cut_graphids[m + 1] + 1
-                    a = Int(cut_arcids[m + 1])
-                    if !hascoeff(model.coeffmanager, g, a)
-                        push!(cut.members, CapacityCutMember(g, a, cut_coeffs[m + 1]))
-                        regcoeff!(model.coeffmanager, g, a)
+                    v = Int(cut_varids[m + 1] + 1)
+                    if !hascoeff(model.coeffmanager, v)
+                        push!(cut.members, CapacityCutMember(v, cut_coeffs[m + 1]))
+                        regcoeff!(model.coeffmanager, v)
                     end
                 end
                 isempty(cut.members) && continue
