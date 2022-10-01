@@ -92,3 +92,7 @@ end
 function set_branching_priority!(::VrpModel, ::String, ::Int)
     @warn "set_branching_priority! is not implemented... ignoring it."
 end
+
+function add_cut_callback!(::VrpModel, ::Function, ::String)
+    @warn "add_cut_callback! is not implemented... ignoring it."
+end
