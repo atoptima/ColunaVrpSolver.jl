@@ -80,6 +80,7 @@ function run_cvrp(app::Dict{String,Any})
     end
 
     println("########################################################")
+    retval = Inf
     if solution_found || app["sol"] !== nothing # Is there a solution?
         checksolution(data, sol)
         print_routes(sol)
@@ -94,6 +95,7 @@ function run_cvrp(app::Dict{String,Any})
                 println("TikZ figure ($(app["tikz"])) will not be generated, since the instance has no coordinates.")
             end
         end
+        retval = sol.cost
     elseif !app["nosolve"]
         if status == :Optimal
             println("Problem infeasible")
@@ -102,6 +104,7 @@ function run_cvrp(app::Dict{String,Any})
         end
     end
     println("########################################################")
+    return retval
 end
 
 function main(args)
@@ -117,8 +120,9 @@ function main(args)
             app_line = parse_commandline(args_array, appfolder)
             run_cvrp(app_line)
         end
+        return 0.0
     else
-        run_cvrp(app)
+        return run_cvrp(app)
     end
 end
 
