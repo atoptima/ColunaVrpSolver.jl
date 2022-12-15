@@ -20,6 +20,16 @@ function regcoeff!(ccm::CutCoeffManager, v::Int)
     return
 end
 
+Coluna.@with_kw mutable struct RedCostFixAndEnumAlgorithm <:
+    Coluna.Algorithm.AbstractOptimizationAlgorithm
+    func::Function
+end
+
+Coluna.@with_kw mutable struct SolveByMipAlgorithm <:
+    Coluna.Algorithm.AbstractOptimizationAlgorithm
+    func::Function
+end
+
 mutable struct VrpModel <: AbstractVrpModel
     formulation::JuMP.Model
     rcsp_instances::Vector{RCSPProblem}
@@ -28,6 +38,8 @@ mutable struct VrpModel <: AbstractVrpModel
     coeffmanager::CutCoeffManager
     variables_by_id::Vector{VariableRef}
     varids_by_var::Dict{VariableRef, Int}
+    redcostfix_enum_algo::RedCostFixAndEnumAlgorithm
+    solve_by_mip_algo::SolveByMipAlgorithm
 end
 
 get_maxvarid(model::VrpModel) = length(model.variables_by_id)
@@ -54,9 +66,20 @@ function VrpModel()
             smoothing_stabilization = 1.0
         ))
     end
+    dummyfunc() = nothing
+    redcostfix_enum_algo = RedCostFixAndEnumAlgorithm(func = dummyfunc)
+    solve_by_mip_algo = SolveByMipAlgorithm(func = dummyfunc)
     colcutgen = Coluna.Algorithm.ColCutGenConquer(
         stages = colgenstages,
         primal_heuristics = [],
+        before_cutgen_user_algorithm = Coluna.Algorithm.BeforeCutGenAlgo(
+            redcostfix_enum_algo, 
+            "Reduced cost fixing and enumeration"
+        ),
+        node_finalizer = Coluna.Algorithm.NodeFinalizer(
+            solve_by_mip_algo,
+            "Solver by MIP"
+        )
     )
     branching = Coluna.Algorithm.StrongBranching()
     prodscore = Coluna.Algorithm.ProductScore()
@@ -83,9 +106,9 @@ function VrpModel()
 
     # Return the VrpSolver model containing the Coluna and RCSP models
     return VrpModel(
-        form, RCSPProblem[],
-        Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[], Dict{VariableRef, Int64}()
+        form, RCSPProblem[], Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
+        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[], Dict{VariableRef, Int64}(),
+        redcostfix_enum_algo, solve_by_mip_algo
     )
 end
 

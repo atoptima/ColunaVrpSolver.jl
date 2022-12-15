@@ -12,6 +12,78 @@ struct VrpSolution
     paths::Vector{Tuple{Float64, PathVarData}}
 end
 
+function Coluna.Algorithm.run!(
+    algo::RedCostFixAndEnumAlgorithm, ::Coluna.Env,
+    reform::Coluna.MathProg.Reformulation, input::Coluna.Algorithm.OptimizationState
+)
+    masterform = Coluna.MathProg.getmaster(reform)
+    changed = false
+    for (_, spform) in Coluna.MathProg.get_dw_pricing_sps(reform)
+        cbdata = Coluna.MathProg.PricingCallbackData(spform)
+        changed |= algo.func(masterform, cbdata, input)
+    end
+    return changed
+end
+
+function Coluna.Algorithm.run!(
+    algo::SolveByMipAlgorithm, ::Coluna.Env, reform::Coluna.MathProg.Reformulation,
+    input::Coluna.Algorithm.OptimizationState
+)
+    # Call the solver by MIP function
+    masterform = Coluna.MathProg.getmaster(reform)
+    return algo.func(masterform, input)
+end
+
+# Define the function to perform reduced-cost fixing and enumeration via RCSP library
+function run_redcostfixing_and_enumeration!(
+    masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
+    optstate::Coluna.Algorithm.OptimizationState
+) where {CB}
+    # Get the primal and dual bounds
+    dual_bnd = Coluna.Algorithm.get_lp_dual_bound(optstate).value
+    primal_bnd = Coluna.Algorithm.get_ip_primal_bound(optstate).value
+
+    # Get the dual variables associated to the subproblem bounds constraints
+    dualsol = Coluna.Algorithm.get_best_lp_dual_sol(optstate)
+    convdual = 0.0
+    spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
+    reform = masterform.parent_formulation
+    constrid = Coluna.MathProg.get_dw_pricing_sp_ub_constrid(reform, spid)
+    convdual -= dualsol[constrid]
+    constrid = Coluna.MathProg.get_dw_pricing_sp_lb_constrid(reform, spid)
+    convdual -= dualsol[constrid]
+
+    # Call the reduced cost fixing and enumeration function
+    rcsp = model.rcsp_instances[spid]
+    run_rcsp_rcostfix_and_enum(rcsp, rcosts, primal_bnd - dual_bnd - convdual)
+
+    return false
+end
+
+# Define the function to solve the problem by MIP to be called in the node finalizer
+function run_solve_by_mip!(
+    masterform::Coluna.MathProg.Formulation, model::VrpModel,
+    optstate::Coluna.Algorithm.OptimizationState
+)
+    # TODO: solve the problem of restoring this recorded RCSP state only once in the
+    #       RCSP pricing
+    
+    # Record the RCSP princing state and store it
+    storage = Coluna.MathProg.getstorage(masterform)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    for rcsp in model.rcsp_instances
+        record_rcsp_state(rcsp)
+    end
+    unit.rcsp_state = [rcsp.state for rcsp in model.rcsp_instances]
+
+    # Return an unchanged optimization state
+    return Coluna.Algorithm.OptimizationState(
+        masterform, 
+        ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(optstate),
+        termination_status = Coluna.OTHER_LIMIT
+    )
+end
+
 # Define the function to perform pricing via RCSP library
 function solve_RCSP_pricing(
     cbdata::CB, stage::Int, model::VrpModel, rcosts::Vector{Float64}
@@ -22,7 +94,11 @@ function solve_RCSP_pricing(
             cbdata, model.variables_by_id[vid]
         )
     end
-    # @show rcosts
+    setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
+    @show setup_var
+    var_rcosts = tuple.(model.variables_by_id, rcosts)
+    @show cbdata.form.parent_formulation.lp_count
+    @show var_rcosts
 
     # call the pricing solver
     rcsp = model.rcsp_instances[BlockDecomposition.callback_spid(cbdata, model.formulation)]
@@ -140,6 +216,14 @@ function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
             ]
         )
     end
+
+    # set the callback for reduced-cost fixing and enumeration, and solver by MIP
+    model.redcostfix_enum_algo.func =
+        (masterform, cbdata, optstate) -> run_redcostfixing_and_enumeration!(
+            masterform, cbdata, model, rcosts, optstate
+        )
+    model.solve_by_mip_algo.func =
+        (masterform, optstate) -> run_solve_by_mip!(masterform, model, optstate)
 
     # create a dictionary of return values for compatibility with old applications
     sd = Dict(

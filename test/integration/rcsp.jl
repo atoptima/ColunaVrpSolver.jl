@@ -50,55 +50,55 @@ function run_rcsp_integration_tests()
         return toy, x
     end
 
-    # @testset "Calling the C++ library to solve the RCSP problem" begin
-    #     @test haskey(ENV, "RCSP_LIB_PATH")
+    @testset "Calling the C++ library to solve the RCSP problem" begin
+        @test haskey(ENV, "RCSP_LIB_PATH")
 
-    #     for ng in (false, true)
-    #         # build a toy VRP model with one graph
-    #         toy, x = build_toy_model(with_ngpaths = ng)
-    #         ColunaVrpSolver.build_solvers!(toy)
-    #         rcsp = toy.rcsp_instances[1] 
-    #         @test rcsp.solver != Ptr{Cvoid}(0)
+        for ng in (false, true)
+            # build a toy VRP model with one graph
+            toy, x = build_toy_model(with_ngpaths = ng)
+            ColunaVrpSolver.build_solvers!(toy)
+            rcsp = toy.rcsp_instances[1] 
+            @test rcsp.solver != Ptr{Cvoid}(0)
 
-    #         # build a variable-to-edge map
-    #         var_to_edge = Dict{VariableRef, Tuple{Int, Int}}()
-    #         for e in E
-    #             var_to_edge[x[e]] = e
-    #         end
+            # build a variable-to-edge map
+            var_to_edge = Dict{VariableRef, Tuple{Int, Int}}()
+            for e in E
+                var_to_edge[x[e]] = e
+            end
 
-    #         # set the reduced costs of variables assuming one-to-one correspondence
-    #         # between arc ids and variable ids (valid only for explicit master)
-    #         var_rcosts = zeros(Float64, ColunaVrpSolver.get_maxvarid(toy))
-    #         for (varid, var) in enumerate(toy.variables_by_id)
-    #             (i, j) = var_to_edge[var]
-    #             var_rcosts[varid] = abs(j - i) - 50.0 * (d(i) + d(j))
-    #         end
-    #         priced_paths = ColunaVrpSolver.run_rcsp_pricing(rcsp, 0, var_rcosts)
-    #         if ng
-    #             expected_paths = [
-    #                 [0, 8, 16, 7], [2, 16, 13, 1], [0, 12, 17, 3], [6, 17, 9, 1],
-    #                 [2, 9, 12, 7], [6, 13, 8, 3], [0, 10, 15, 3], [0, 8, 14, 5],
-    #                 [2, 14, 11, 1], [4, 15, 9, 1], [2, 9, 10, 5], [4, 18, 7], [4, 11, 8, 3],
-    #                 [6, 19, 5], [2, 16, 7], [6, 17, 3], [2, 14, 5], [2, 14, 5], [0, 12, 7],
-    #                 [0, 12, 7], [4, 11, 1], [0, 10, 5], [2, 9, 1], [0, 8, 3], [6, 7],
-    #                 [4, 5], [2, 3], [0, 1]
-    #             ]
-    #         else
-    #             expected_paths = [
-    #                 [2, 9, 8, 9, 1], [0, 8, 9, 8, 3], [2, 14, 15, 3], [0, 8, 16, 7],
-    #                 [2, 16, 13, 1], [0, 12, 17, 3], [6, 17, 9, 1], [2, 9, 12, 7],
-    #                 [4, 11, 10, 5], [6, 13, 8, 3], [0, 10, 15, 3], [0, 8, 14, 5],
-    #                 [2, 14, 11, 1], [4, 15, 9, 1], [0, 12, 13, 1], [2, 9, 10, 5], [4, 18, 7],
-    #                 [4, 11, 8, 3], [6, 19, 5], [0, 10, 11, 1], [2, 9, 8, 3], [2, 16, 7],
-    #                 [6, 17, 3], [0, 8, 9, 1], [2, 14, 5], [2, 14, 5], [0, 12, 7], [0, 12, 7],
-    #                 [4, 11, 1], [0, 10, 5], [2, 9, 1], [0, 8, 3], [6, 7], [4, 5], [2, 3],
-    #                 [0, 1]
-    #             ]
-    #         end
-    #         @test priced_paths == expected_paths
-    #         # println(priced_paths)
-    #     end
-    # end
+            # set the reduced costs of variables assuming one-to-one correspondence
+            # between arc ids and variable ids (valid only for explicit master)
+            var_rcosts = zeros(Float64, ColunaVrpSolver.get_maxvarid(toy))
+            for (varid, var) in enumerate(toy.variables_by_id)
+                (i, j) = var_to_edge[var]
+                var_rcosts[varid] = abs(j - i) - 50.0 * (d(i) + d(j))
+            end
+            priced_paths = ColunaVrpSolver.run_rcsp_pricing(rcsp, 0, var_rcosts)
+            if ng
+                expected_paths = [
+                    [0, 8, 16, 7], [2, 16, 13, 1], [0, 12, 17, 3], [6, 17, 9, 1],
+                    [2, 9, 12, 7], [6, 13, 8, 3], [0, 10, 15, 3], [0, 8, 14, 5],
+                    [2, 14, 11, 1], [4, 15, 9, 1], [2, 9, 10, 5], [4, 18, 7], [4, 11, 8, 3],
+                    [6, 19, 5], [2, 16, 7], [6, 17, 3], [2, 14, 5], [2, 14, 5], [0, 12, 7],
+                    [0, 12, 7], [4, 11, 1], [0, 10, 5], [2, 9, 1], [0, 8, 3], [6, 7],
+                    [4, 5], [2, 3], [0, 1]
+                ]
+            else
+                expected_paths = [
+                    [2, 9, 8, 9, 1], [0, 8, 9, 8, 3], [2, 14, 15, 3], [0, 8, 16, 7],
+                    [2, 16, 13, 1], [0, 12, 17, 3], [6, 17, 9, 1], [2, 9, 12, 7],
+                    [4, 11, 10, 5], [6, 13, 8, 3], [0, 10, 15, 3], [0, 8, 14, 5],
+                    [2, 14, 11, 1], [4, 15, 9, 1], [0, 12, 13, 1], [2, 9, 10, 5], [4, 18, 7],
+                    [4, 11, 8, 3], [6, 19, 5], [0, 10, 11, 1], [2, 9, 8, 3], [2, 16, 7],
+                    [6, 17, 3], [0, 8, 9, 1], [2, 14, 5], [2, 14, 5], [0, 12, 7], [0, 12, 7],
+                    [4, 11, 1], [0, 10, 5], [2, 9, 1], [0, 8, 3], [6, 7], [4, 5], [2, 3],
+                    [0, 1]
+                ]
+            end
+            @test priced_paths == expected_paths
+            # println(priced_paths)
+        end
+    end
 
     @testset "Solving a complete CVRP toy instance" begin
         for (ng, cc) in [(true, false), (false, true)]
