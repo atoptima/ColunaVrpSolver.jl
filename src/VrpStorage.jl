@@ -1,11 +1,17 @@
-mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit 
-    rcsp_state::Vector{Ptr{Cvoid}}
+struct RCSPState
+    pricing::Ptr{Cvoid}
+    state::Ptr{Cvoid}
 end
 
-Coluna.ColunaBase.new_storage_unit(::Type{VrpNodeInfoUnit}, _) = VrpNodeInfoUnit(111)
+mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit 
+    rcsp_states::Vector{RCSPState}
+end
+
+Coluna.ColunaBase.new_storage_unit(::Type{VrpNodeInfoUnit}, _) =
+    VrpNodeInfoUnit(RCSPState[])
 
 struct VrpNodeInfo <: Coluna.ColunaBase.AbstractNewRecord
-    rcsp_state::Vector{Ptr{Cvoid}}
+    rcsp_states::Vector{RCSPState}
 end
 
 Coluna.ColunaBase.record_type(::Type{VrpNodeInfoUnit}) = VrpNodeInfo
@@ -19,13 +25,18 @@ Coluna.Algorithm.record_type_from_key(::VrpNodeInfoKey) = VrpNodeInfo
 function Coluna.ColunaBase.new_record(
     ::Type{VrpNodeInfo}, id::Int, form::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit
 )
-    return VrpNodeInfo(unit.rcsp_state)
+    # @info "In new_record $(unit.rcsp_states)"
+    return VrpNodeInfo(unit.rcsp_states)
 end
 
 function Coluna.ColunaBase.restore_from_record!(
     ::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit, record::VrpNodeInfo
 )
-    unit.rcsp_state = record.rcsp_state
+    # @info "In restore_from_record! $(record.rcsp_states)"
+    for rcsp_state in record.rcsp_states
+        restore_rcsp_state(rcsp_state.pricing, rcsp_state.state)
+    end
+    unit.rcsp_states = record.rcsp_states
     return
 end
 
@@ -42,10 +53,10 @@ function Coluna.Algorithm.get_branching_candidate_units_usage(
 end
 
 Coluna.Algorithm.ismanager(::Coluna.Algorithm.BeforeCutGenAlgo) = false
-Coluna.Algorithm.ismanager(::ImproveRelaxationAlgo) = false
+Coluna.Algorithm.ismanager(::RedCostFixAndEnumAlgorithm) = false
 
 function Coluna.Algorithm.get_units_usage(
-    ::ImproveRelaxationAlgo, reform::Coluna.MathProg.Reformulation
+    ::RedCostFixAndEnumAlgorithm, reform::Coluna.MathProg.Reformulation
 ) 
     units_usage = Tuple{
         Coluna.MathProg.AbstractModel,Coluna.ColunaBase.UnitType,Coluna.ColunaBase.UnitPermission

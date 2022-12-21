@@ -39,6 +39,16 @@ function run_redcostfixing_and_enumeration!(
     masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
     optstate::Coluna.Algorithm.OptimizationState
 ) where {CB}
+    # @info "In run_redcostfixing_and_enumeration!"
+
+    # Get the reduced costs
+    for vid in 1:get_maxvarid(model)
+        rcosts[vid] = BlockDecomposition.callback_reduced_cost(
+            cbdata, model.variables_by_id[vid]
+        )
+    end
+    # @show rcosts
+
     # Get the primal and dual bounds
     dual_bnd = Coluna.Algorithm.get_lp_dual_bound(optstate).value
     primal_bnd = Coluna.Algorithm.get_ip_primal_bound(optstate).value
@@ -46,14 +56,15 @@ function run_redcostfixing_and_enumeration!(
     # Get the dual variables associated to the subproblem bounds constraints
     dualsol = Coluna.Algorithm.get_best_lp_dual_sol(optstate)
     convdual = 0.0
-    spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     reform = masterform.parent_formulation
-    constrid = Coluna.MathProg.get_dw_pricing_sp_ub_constrid(reform, spid)
+    sp_uid = Coluna.MathProg.getuid(cbdata.form)
+    constrid = Coluna.MathProg.get_dw_pricing_sp_ub_constrid(reform, sp_uid)
     convdual -= dualsol[constrid]
-    constrid = Coluna.MathProg.get_dw_pricing_sp_lb_constrid(reform, spid)
+    constrid = Coluna.MathProg.get_dw_pricing_sp_lb_constrid(reform, sp_uid)
     convdual -= dualsol[constrid]
 
     # Call the reduced cost fixing and enumeration function
+    spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
     run_rcsp_rcostfix_and_enum(rcsp, rcosts, primal_bnd - dual_bnd - convdual)
 
@@ -71,10 +82,10 @@ function run_solve_by_mip!(
     # Record the RCSP princing state and store it
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
-    for rcsp in model.rcsp_instances
-        record_rcsp_state(rcsp)
-    end
-    unit.rcsp_state = [rcsp.state for rcsp in model.rcsp_instances]
+    unit.rcsp_states = [
+        RCSPState(rcsp.solver, record_rcsp_state(rcsp)) for rcsp in model.rcsp_instances
+    ]
+    # @info "In run_solve_by_mip! $(unit.rcsp_states)"
 
     # Return an unchanged optimization state
     return Coluna.Algorithm.OptimizationState(
@@ -95,10 +106,10 @@ function solve_RCSP_pricing(
         )
     end
     setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
-    @show setup_var
+    # @show setup_var
     var_rcosts = tuple.(model.variables_by_id, rcosts)
-    @show cbdata.form.parent_formulation.lp_count
-    @show var_rcosts
+    # @show cbdata.form.parent_formulation.lp_count
+    # @show var_rcosts
 
     # call the pricing solver
     rcsp = model.rcsp_instances[BlockDecomposition.callback_spid(cbdata, model.formulation)]

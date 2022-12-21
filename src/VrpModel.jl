@@ -73,12 +73,10 @@ function VrpModel()
         stages = colgenstages,
         primal_heuristics = [],
         before_cutgen_user_algorithm = Coluna.Algorithm.BeforeCutGenAlgo(
-            redcostfix_enum_algo, 
-            "Reduced cost fixing and enumeration"
+            redcostfix_enum_algo, "Reduced cost fixing and enumeration"
         ),
         node_finalizer = Coluna.Algorithm.NodeFinalizer(
-            solve_by_mip_algo,
-            "Solver by MIP"
+            solve_by_mip_algo, 0, "Solver by MIP"
         )
     )
     branching = Coluna.Algorithm.StrongBranching()

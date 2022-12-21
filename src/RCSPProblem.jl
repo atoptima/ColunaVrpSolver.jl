@@ -1,10 +1,9 @@
 mutable struct RCSPProblem
     graph::VrpGraph
     solver::Ptr{Cvoid}
-    state::Ptr{Cvoid}
 end
 
-RCSPProblem(graph::VrpGraph) = RCSPProblem(graph, Ptr{Cvoid}(0), Ptr{Cvoid}(0))
+RCSPProblem(graph::VrpGraph) = RCSPProblem(graph, Ptr{Cvoid}(0))
 
 function build_solvers!(model::T) where {T <: AbstractVrpModel}
     # Instantiate an RCSP solver for each RCSP problem instance
@@ -56,25 +55,24 @@ function run_rcsp_rcostfix_and_enum(
 end
 
 function record_rcsp_state(rcsp::RCSPProblem)
-    # Call the RCSP pricing solver to record its current state and save it in `rcsp`
-    rcsp.state = ccall(
-        (:recordPricingState_c, path), Ptr{Cvoid}, (Ptr{Cvoid}), rcsp.solver
+    # Call the RCSP pricing solver and return its current state
+    return ccall(
+        (:recordPricingState_c, path), Ptr{Cvoid}, (Ptr{Cvoid},), rcsp.solver
+    )
+end
+
+function restore_rcsp_state(solver::Ptr{Cvoid}, state::Ptr{Cvoid})
+    # Call the RCSP pricing solver to restore the state saved in `state`
+    ccall(
+        (:restorePricingState_c, path), Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), solver, state
     )
     return
 end
 
-function restore_rcsp_state(rcsp::RCSPProblem)
-    # Call the RCSP pricing solver to restore the state saved at `rcsp`
+function release_rcsp_state(state::Ptr{Cvoid})
+    # Call the RCSP pricing solver to release the memory used by the state saved at `state`
     ccall(
-        (:restorePricingState_c, path), Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), rcsp.solver, rcsp.state
-    )
-    return
-end
-
-function release_rcsp_state(rcsp::RCSPProblem)
-    # Call the RCSP pricing solver to release the memory used by the state saved at `rcsp`
-    ccall(
-        (:releasePricingState_c, path), Cvoid, (Ptr{Cvoid}) rcsp.state
+        (:releasePricingState_c, path), Cvoid, (Ptr{Cvoid},), state
     )
     return
 end
