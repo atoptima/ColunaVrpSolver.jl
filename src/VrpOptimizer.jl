@@ -8,7 +8,7 @@ struct PathVarData <: BlockDecomposition.AbstractCustomData
     arcids::Vector{Int}
 end
 
-struct VrpSolution
+struct VrpSolution <: AbstractVrpSolution
     paths::Vector{Tuple{Float64, PathVarData}}
 end
 
@@ -49,9 +49,21 @@ function run_redcostfixing_and_enumeration!(
     end
     # @show rcosts
 
-    # Get the primal and dual bounds
+    # Get the primal and dual bounds and compute the current gap
     dual_bnd = Coluna.Algorithm.get_lp_dual_bound(optstate).value
     primal_bnd = Coluna.Algorithm.get_ip_primal_bound(optstate).value
+    curr_gap = (primal_bnd - dual_bnd) * 100.0 / primal_bnd
+
+    # Stop if the gap did not reduce enough
+    storage = Coluna.MathProg.getstorage(masterform)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    gap_ratio = curr_gap / unit.last_rcost_fix_gap
+    threshold = get_parameter(model, :ReducedCostFixingThreshold)
+    # @show unit.last_rcost_fix_gap, curr_gap, gap_ratio, threshold
+    if gap_ratio > threshold
+        println("Full reduced cost fixing is not called (gap ratio is $(gap_ratio))")
+        return false
+    end
 
     # Get the dual variables associated to the subproblem bounds constraints
     dualsol = Coluna.Algorithm.get_best_lp_dual_sol(optstate)
@@ -67,7 +79,7 @@ function run_redcostfixing_and_enumeration!(
     spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
     run_rcsp_rcostfix_and_enum(rcsp, rcosts, primal_bnd - dual_bnd - convdual)
-
+    unit.last_rcost_fix_gap = curr_gap
     return false
 end
 
@@ -188,7 +200,11 @@ function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
     end
 end
 
-function VrpOptimizer(model::VrpModel, _::String, _::AbstractString)
+function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
+    empty!(model.parameters)
+    push!(model.parameters, VrpParameters(config_fname))
+    @show model.parameters[1]
+    build_capacity_cut_separators!(model)
     build_solvers!(model)
 
     # apply the decomposition and store the axis

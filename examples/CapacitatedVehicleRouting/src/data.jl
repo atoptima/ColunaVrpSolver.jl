@@ -98,6 +98,7 @@ function readCVRPData(app::Dict{String,Any})
             end
         end
     end
+    # @show data.G′.cost
 
     return data
 end

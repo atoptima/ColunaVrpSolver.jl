@@ -9,8 +9,8 @@ function build_solvers!(model::T) where {T <: AbstractVrpModel}
     # Instantiate an RCSP solver for each RCSP problem instance
     for prob in model.rcsp_instances
         prob.solver = ccall(
-            (:createAndPrepareSolver_c, path), Ptr{Cvoid}, (Ptr{Cvoid},),
-            prob.graph.cptr
+            (:createAndPrepareSolver_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Ptr{Cvoid}),
+            prob.graph.cptr, get_rcsp_params(model.parameters[1], PARAM_CLASS_SOLVER)
         )
     end
     return

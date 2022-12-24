@@ -1,3 +1,5 @@
+abstract type AbstractVrpSolution end
+
 struct CapacityCutMember
     varid::Int
     coeff::Float64
@@ -9,15 +11,22 @@ struct CapacityCut
     members::Vector{CapacityCutMember}
 end
 
+struct RCCPreSeparator
+    graphs::Vector{Ptr{Cvoid}}
+    vertids::Vector{Cint}
+    demands::Vector{Float64}
+    capacity::Float64
+end
+
 domain(cut::CapacityCut) = (
     (cut.sense == :<=) ?
         MathOptInterface.LessThan(cut.rhs) : MathOptInterface.GreaterThan(cut.rhs)
 )
 
 function add_capacity_cut_separator!(
-    model::VrpModel, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{VrpModel},Int}}, Float64}},
+    model::M, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{M},Int}}, Float64}},
     capacity::Float64
-)
+) where {M <: AbstractVrpModel}
     # make sure that all graphs are preprocessed
     for rcsp in model.rcsp_instances
         preprocess_graph!(rcsp.graph)
@@ -35,16 +44,28 @@ function add_capacity_cut_separator!(
     # call the C++ function to create the capacity cut separator and add it to the model
     demands = [d for (_, d) in demandsets]
     push!(
-        model.rcc_separators,
-        ccall(
-            (:addCapacityCutSeparator_c, path), Ptr{Cvoid},
-            (Cint, Ref{Ptr{Cvoid}}, Ptr{Cint}, Ptr{Float64}, Float64),
-            Cint(length(demandsets)), graphs, vertids, demands, capacity
-        )
+        model.rcc_pre_separators, RCCPreSeparator(graphs, vertids, demands, capacity)
     )
 end
 
-function run_capacity_cut_separators(model::VrpModel, sol::VrpSolution)
+function build_capacity_cut_separators!(model::M) where {M <: AbstractVrpModel}
+    for presep in model.rcc_pre_separators
+        push!(
+            model.rcc_separators,
+            ccall(
+                (:addCapacityCutSeparator_c, path), Ptr{Cvoid},
+                (Cint, Ref{Ptr{Cvoid}}, Ptr{Cint}, Ptr{Float64}, Float64, Ptr{Cvoid}),
+                Cint(length(presep.demands)), presep.graphs, presep.vertids, presep.demands,
+                presep.capacity,
+                get_rcsp_params(model.parameters[1], PARAM_CLASS_ROUND_CAP_CUTS_SEPARATOR)
+            )
+        )
+    end
+end
+
+function run_capacity_cut_separators(
+    model::M, sol::S
+) where {M <: AbstractVrpModel, S <: AbstractVrpSolution}
     # prepare the fractional solution data
     path_values = Float64[]
     path_graphids = Cint[]

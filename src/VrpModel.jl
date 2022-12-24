@@ -35,12 +35,17 @@ mutable struct VrpModel <: AbstractVrpModel
     rcsp_instances::Vector{RCSPProblem}
     bd_graphs::Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}
     rcc_separators::Vector{Ptr{Cvoid}}
+    rcc_pre_separators::Vector{RCCPreSeparator}
     coeffmanager::CutCoeffManager
     variables_by_id::Vector{VariableRef}
     varids_by_var::Dict{VariableRef, Int}
     redcostfix_enum_algo::RedCostFixAndEnumAlgorithm
     solve_by_mip_algo::SolveByMipAlgorithm
+    parameters::Vector{VrpParameters}
 end
+
+get_parameter(model::VrpModel, param::Symbol) =
+    getfield(model.parameters[1].coluna_vrp_params, param)
 
 get_maxvarid(model::VrpModel) = length(model.variables_by_id)
 
@@ -105,8 +110,8 @@ function VrpModel()
     # Return the VrpSolver model containing the Coluna and RCSP models
     return VrpModel(
         form, RCSPProblem[], Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[], CutCoeffManager(), VariableRef[], Dict{VariableRef, Int64}(),
-        redcostfix_enum_algo, solve_by_mip_algo
+        Ptr{Cvoid}[], RCCPreSeparator[], CutCoeffManager(), VariableRef[], Dict{VariableRef, Int64}(),
+        redcostfix_enum_algo, solve_by_mip_algo, VrpParameters[]
     )
 end
 
