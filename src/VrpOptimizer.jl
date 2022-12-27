@@ -3,11 +3,6 @@ mutable struct VrpOptimizer
     status_dict::Dict{MathOptInterface.TerminationStatusCode, Symbol}
 end
 
-struct PathVarData <: BlockDecomposition.AbstractCustomData
-    graphid::Int
-    arcids::Vector{Int}
-end
-
 struct VrpSolution <: AbstractVrpSolution
     paths::Vector{Tuple{Float64, PathVarData}}
 end
@@ -78,8 +73,40 @@ function run_redcostfixing_and_enumeration!(
     # Call the reduced cost fixing and enumeration function
     spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
-    run_rcsp_rcostfix_and_enum(rcsp, rcosts, primal_bnd - dual_bnd - convdual)
+    unit.enumerated |= run_rcsp_rcostfix_and_enum(
+        rcsp, rcosts, primal_bnd - dual_bnd - convdual
+    )
     unit.last_rcost_fix_gap = curr_gap
+
+    # deactivate the irrelevant columns from the master if enumerated
+    changed = false
+    if unit.enumerated
+        colpaths = PathVarData[]
+        for (vid, var) in Coluna.MathProg.getvars(masterform)
+            if Coluna.MathProg.iscuractive(masterform, vid) &&
+                    Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
+                    var.custom_data.graphid == rcsp.graph.id
+                push!(colpaths, var.custom_data)
+            end
+        end
+        # @show colpaths
+        isrelevant = check_enumerated_paths(rcsp, colpaths)
+        # @show isrelevant
+        col = 1
+        for (vid, var) in Coluna.MathProg.getvars(masterform)
+            if Coluna.MathProg.iscuractive(masterform, vid) &&
+                    Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
+                    var.custom_data.graphid == rcsp.graph.id
+                # varname = Coluna.MathProg.getname(masterform, var)
+                if !isrelevant[col]
+                    Coluna.MathProg.deactivate!(masterform, vid)
+                    changed = true
+                end
+                col += 1
+            end
+        end
+    end
+
     return false
 end
 
@@ -125,7 +152,14 @@ function solve_RCSP_pricing(
 
     # call the pricing solver
     rcsp = model.rcsp_instances[BlockDecomposition.callback_spid(cbdata, model.formulation)]
-    paths = run_rcsp_pricing(rcsp, stage - 1, rcosts)
+    masterform = cbdata.form.parent_formulation
+    storage = Coluna.MathProg.getstorage(masterform)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    _stage = unit.enumerated ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
+    paths = run_rcsp_pricing(rcsp, _stage, rcosts)
+    # if unit.enumerated
+    #     @show stage, paths
+    # end
     if !isempty(paths)
         print("<st=$(stage - 1)>")  # TODO: move this to the Coluna's log
     end
@@ -157,7 +191,7 @@ function solve_RCSP_pricing(
     end
     MathOptInterface.submit(
         model.formulation, BlockDecomposition.PricingDualBound(cbdata),
-        (stage == 1) ? min_rc : -Inf
+        (_stage == 0) ? min_rc : -Inf
     )
 end
 

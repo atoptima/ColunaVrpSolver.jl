@@ -1,9 +1,20 @@
 mutable struct RCSPProblem
     graph::VrpGraph
     solver::Ptr{Cvoid}
+    buf_cint_1::Vector{Cint}
+    buf_cint_2::Vector{Cint}
+    buf_cint_3::Vector{Cint}
+    buf_cint_4::Vector{Cint}
 end
 
-RCSPProblem(graph::VrpGraph) = RCSPProblem(graph, Ptr{Cvoid}(0))
+RCSPProblem(graph::VrpGraph) = RCSPProblem(
+    graph, Ptr{Cvoid}(0), Cint[], Cint[], Cint[], Cint[]
+)
+
+struct PathVarData <: BlockDecomposition.AbstractCustomData
+    graphid::Int
+    arcids::Vector{Int}
+end
 
 function build_solvers!(model::T) where {T <: AbstractVrpModel}
     # Instantiate an RCSP solver for each RCSP problem instance
@@ -28,8 +39,10 @@ function run_rcsp_pricing(rcsp::RCSPProblem, phase::Int, var_rcosts::Vector{Floa
     ))
 
     # get the output paths, each path as a vertor of arc ids
-    starts = Vector{Cint}(undef, nb_paths + 1)
-    arcs = Vector{Cint}(undef, Int(nb_arcs[1]))
+    starts = rcsp.buf_cint_1
+    arcs = rcsp.buf_cint_2
+    resize!(starts, nb_paths + 1)
+    resize!(arcs, Int(nb_arcs[1]))
     ccall(
         (:getOutputPaths_c, path), Cvoid, (Ptr{Cvoid}, Ptr{Cint}, Ptr{Cint}),
         output[1], starts, arcs
@@ -47,11 +60,10 @@ function run_rcsp_rcostfix_and_enum(
     rcsp::RCSPProblem, var_rcosts::Vector{Float64}, threshold::Float64
 )
     # Call the RCSP pricing solver to fix and enumerate
-    ccall(
-        (:runRedCostFixingAndEnum_c, path), Cvoid, (Ptr{Cvoid}, Cint, Ptr{Float64}, Float64),
+    return (ccall(
+        (:runRedCostFixingAndEnum_c, path), Cint, (Ptr{Cvoid}, Cint, Ptr{Float64}, Float64),
         rcsp.solver, Cint(length(var_rcosts)), var_rcosts, threshold
-    )
-    return
+    ) != 0)
 end
 
 function record_rcsp_state(rcsp::RCSPProblem)
@@ -75,4 +87,32 @@ function release_rcsp_state(state::Ptr{Cvoid})
         (:releasePricingState_c, path), Cvoid, (Ptr{Cvoid},), state
     )
     return
+end
+
+function check_enumerated_paths(rcsp::RCSPProblem, paths::Vector{PathVarData})
+    # Convet the paths data
+    graphids = rcsp.buf_cint_1
+    starts = rcsp.buf_cint_2
+    arcids = rcsp.buf_cint_3
+    empty!(graphids)
+    empty!(starts)
+    empty!(arcids)
+    for p in paths
+        push!(graphids, Cint(p.graphid))
+        push!(starts, Cint(length(arcids)))
+        for a in p.arcids
+            push!(arcids, Cint(a))
+        end
+    end
+    push!(starts, Cint(length(arcids)))
+
+    # Call the RCSP pricing solver to select the relevant paths
+    isrelevant = rcsp.buf_cint_4
+    resize!(isrelevant, length(paths))
+    ccall(
+        (:checkEnumeratedPaths_c, path), Cvoid,
+        (Ptr{Cvoid}, Cint, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}),
+        rcsp.solver, Cint(length(paths)), graphids, starts, arcids, isrelevant
+    )
+    return (isrelevant .!= 0)
 end
