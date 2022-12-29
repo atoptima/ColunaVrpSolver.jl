@@ -13,6 +13,7 @@ module ColunaVrpSolver
     include("RCSPProblem.jl")
     include("CapacityCut.jl")
     include("VrpModel.jl")
+    include("VrpMipSolver.jl")
     include("VrpStorage.jl")
     include("VrpOptimizer.jl")
 end
