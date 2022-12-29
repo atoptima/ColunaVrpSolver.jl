@@ -6,16 +6,16 @@ end
 mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit 
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
-    enumerated::Bool
+    enumerated::Vector{Bool}
 end
 
 Coluna.ColunaBase.new_storage_unit(::Type{VrpNodeInfoUnit}, _) =
-    VrpNodeInfoUnit(RCSPState[], Inf, false)
+    VrpNodeInfoUnit(RCSPState[], Inf, Bool[])
 
 struct VrpNodeInfo <: Coluna.ColunaBase.AbstractNewRecord
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
-    enumerated::Bool
+    enumerated::Vector{Bool}
 end
 
 Coluna.ColunaBase.record_type(::Type{VrpNodeInfoUnit}) = VrpNodeInfo
@@ -30,7 +30,9 @@ function Coluna.ColunaBase.new_record(
     ::Type{VrpNodeInfo}, id::Int, form::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit
 )
     # @info "In new_record $(unit.rcsp_states)"
-    return VrpNodeInfo(unit.rcsp_states, unit.last_rcost_fix_gap, unit.enumerated)
+    return VrpNodeInfo(
+        unit.rcsp_states, unit.last_rcost_fix_gap, [enum for enum in unit.enumerated]
+    )
 end
 
 function Coluna.ColunaBase.restore_from_record!(
@@ -42,7 +44,7 @@ function Coluna.ColunaBase.restore_from_record!(
     end
     unit.rcsp_states = record.rcsp_states
     unit.last_rcost_fix_gap = record.last_rcost_fix_gap
-    unit.enumerated = record.enumerated
+    unit.enumerated = [enum for enum in record.enumerated]
     return
 end
 

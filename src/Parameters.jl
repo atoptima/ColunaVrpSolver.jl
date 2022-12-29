@@ -5,6 +5,18 @@
     StrongBranchingPhaseTwoTreeSizeEstimRatio::Float64 = 0.1
     CutTailingOffThreshold::Float64 = 0.02
     ReducedCostFixingThreshold::Float64 = 0.9
+    RCSPmaxNumOfEnumSolutionsForMIP::Int = 10000
+    relOptimalityGapTolerance::Float64 = 1e-6
+end
+
+function print_params(params::ColunaVrpParams)
+    println("")
+    println("Values of ColunaVrpSolverParameters:")
+    println("====================================================")
+    for param in fieldnames(ColunaVrpParams)
+        println(param, " = ", getfield(params, param))
+    end
+    return nothing
 end
 
 mutable struct VrpParameters
@@ -36,6 +48,7 @@ function striplinecomment(a::String, cchars::String="#;")
 end
 # ======
 
+is_coluna_param(name::AbstractString) = Symbol(name) in fieldnames(ColunaVrpParams)
 is_bool(val::AbstractString) = (String(val) in ["false", "true"])
 is_int(val::AbstractString) = all(isnothing.(findfirst.(['.', 'e', 'E'], val)))
 
@@ -45,7 +58,7 @@ function setparam!(
 ) where T
     if params_class == PARAM_CLASS_COLUNA
         p = Symbol(param_name)
-        if p in fieldnames(typeof(coluna_vrp_params))
+        if p in fieldnames(ColunaVrpParams)
             if typeof(getfield(coluna_vrp_params, p)) == T
                 setfield!(coluna_vrp_params, p, value)
             else
@@ -70,7 +83,7 @@ function VrpParameters(fname::String)
     coluna_vrp_params = ColunaVrpParams()
     buf = split(striplinecomment(read(fname, String)), ('=', ' ', '\n'), keepempty = false)
     for line in 1:2:length(buf)
-        if buf[line][1:4] == "RCSP"
+        if buf[line][1:4] == "RCSP" && !is_coluna_param(buf[line])
             if buf[line][5:11] == "rankOneCuts"
                 params_class = PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR
                 param_name = lowercasefirst(String(buf[line][12:end]))

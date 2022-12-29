@@ -26,7 +26,20 @@ function Coluna.Algorithm.run!(
 )
     # Call the solver by MIP function
     masterform = Coluna.MathProg.getmaster(reform)
-    return algo.func(masterform, input)
+    pricing_sps = Coluna.MathProg.get_dw_pricing_sps(reform)
+    cbdata_vec = Coluna.MathProg.PricingCallbackData[]
+    for (_, spform) in pricing_sps
+        push!(cbdata_vec, Coluna.MathProg.PricingCallbackData(spform))
+    end
+    return algo.func(masterform, cbdata_vec, input)
+end
+
+function should_solve_by_mip(unit::VrpNodeInfoUnit, model::VrpModel)
+    if all(unit.enumerated)
+        nb_paths = sum(get_number_of_enum_paths(rcsp) for rcsp in model.rcsp_instances)
+        return (nb_paths <= model.parameters[1].coluna_vrp_params.RCSPmaxNumOfEnumSolutionsForMIP)
+    end
+    return false
 end
 
 # Define the function to perform reduced-cost fixing and enumeration via RCSP library
@@ -35,6 +48,12 @@ function run_redcostfixing_and_enumeration!(
     optstate::Coluna.Algorithm.OptimizationState
 ) where {CB}
     # @info "In run_redcostfixing_and_enumeration!"
+
+    storage = Coluna.MathProg.getstorage(masterform)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    if should_solve_by_mip(unit, model)
+        return false
+    end
 
     # Get the reduced costs
     for vid in 1:get_maxvarid(model)
@@ -50,8 +69,6 @@ function run_redcostfixing_and_enumeration!(
     curr_gap = (primal_bnd - dual_bnd) * 100.0 / primal_bnd
 
     # Stop if the gap did not reduce enough
-    storage = Coluna.MathProg.getstorage(masterform)
-    unit = storage.units[VrpNodeInfoUnit].storage_unit
     gap_ratio = curr_gap / unit.last_rcost_fix_gap
     threshold = get_parameter(model, :ReducedCostFixingThreshold)
     # @show unit.last_rcost_fix_gap, curr_gap, gap_ratio, threshold
@@ -73,14 +90,14 @@ function run_redcostfixing_and_enumeration!(
     # Call the reduced cost fixing and enumeration function
     spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
-    unit.enumerated |= run_rcsp_rcostfix_and_enum(
+    unit.enumerated[spid] |= run_rcsp_rcostfix_and_enum(
         rcsp, rcosts, primal_bnd - dual_bnd - convdual
     )
     unit.last_rcost_fix_gap = curr_gap
 
     # deactivate the irrelevant columns from the master if enumerated
     changed = false
-    if unit.enumerated
+    if unit.enumerated[spid]
         colpaths = PathVarData[]
         for (vid, var) in Coluna.MathProg.getvars(masterform)
             if Coluna.MathProg.iscuractive(masterform, vid) &&
@@ -112,15 +129,37 @@ end
 
 # Define the function to solve the problem by MIP to be called in the node finalizer
 function run_solve_by_mip!(
-    masterform::Coluna.MathProg.Formulation, model::VrpModel,
+    masterform::Coluna.MathProg.Formulation, model::VrpModel, cbdata_vec::Vector{CB},
     optstate::Coluna.Algorithm.OptimizationState
-)
-    # TODO: solve the problem of restoring this recorded RCSP state only once in the
-    #       RCSP pricing
-    
-    # Record the RCSP princing state and store it
+) where {CB}
+    # Sort `cbdata_vec` by subproblem id
+    sort!(cbdata_vec, by = cbd -> BlockDecomposition.callback_spid(cbd, model.formulation))
+
+    # Check if should solve the problem by MIP
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
+    if should_solve_by_mip(unit, model)
+        # Solve the problem by MIP
+        primal_bnd = Coluna.Algorithm.get_ip_primal_bound(optstate).value
+        @time sol = solve_vrp_by_mip(masterform, model, cbdata_vec, primal_bnd)
+
+        # Set the optimization state to output
+        output = Coluna.Algorithm.OptimizationState(
+            masterform, 
+            ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(optstate),
+            termination_status = Coluna.OPTIMAL
+        )
+
+        # Build the primal solution if any
+        if !isempty(sol)
+            Coluna.Algorithm.add_ip_primal_sol!(output, sol[1])
+        end
+
+        # Return the optimization state
+        return output
+    end
+
+    # Record the RCSP princing state and store it
     unit.rcsp_states = [
         RCSPState(rcsp.solver, record_rcsp_state(rcsp)) for rcsp in model.rcsp_instances
     ]
@@ -144,20 +183,24 @@ function solve_RCSP_pricing(
             cbdata, model.variables_by_id[vid]
         )
     end
-    setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
+    # setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
     # @show setup_var
-    var_rcosts = tuple.(model.variables_by_id, rcosts)
+    # var_rcosts = tuple.(model.variables_by_id, rcosts)
     # @show cbdata.form.parent_formulation.lp_count
     # @show var_rcosts
 
     # call the pricing solver
-    rcsp = model.rcsp_instances[BlockDecomposition.callback_spid(cbdata, model.formulation)]
+    spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
+    rcsp = model.rcsp_instances[spid]
     masterform = cbdata.form.parent_formulation
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
-    _stage = unit.enumerated ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
+    if isempty(unit.enumerated)
+        unit.enumerated = zeros(Bool, length(model.rcsp_instances))
+    end
+    _stage = unit.enumerated[spid] ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
     paths = run_rcsp_pricing(rcsp, _stage, rcosts)
-    # if unit.enumerated
+    # if unit.enumerated[spid]
     #     @show stage, paths
     # end
     if !isempty(paths)
@@ -197,6 +240,12 @@ end
 
 # Define the function to separate capacity cuts via RCSP library
 function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
+    storage = Coluna.MathProg.getstorage(cbdata.form)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    if should_solve_by_mip(unit, model)
+        return
+    end
+
     # get the solution of the current relaxation
     sol = VrpSolution(Tuple{Float64, PathVarData}[])
     for (varid, varval) in cbdata.orig_sol
@@ -232,12 +281,13 @@ function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
             model.formulation, MathOptInterface.UserCut(cbdata), moi_cut
         )
     end
+    return
 end
 
 function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     empty!(model.parameters)
     push!(model.parameters, VrpParameters(config_fname))
-    @show model.parameters[1]
+    print_params(model.parameters[1].coluna_vrp_params)
     build_capacity_cut_separators!(model)
     build_solvers!(model)
 
@@ -284,7 +334,9 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
             masterform, cbdata, model, rcosts, optstate
         )
     model.solve_by_mip_algo.func =
-        (masterform, optstate) -> run_solve_by_mip!(masterform, model, optstate)
+        (masterform, cbdata_vec, optstate) -> run_solve_by_mip!(
+            masterform, model, cbdata_vec, optstate
+        )
 
     # create a dictionary of return values for compatibility with old applications
     sd = Dict(
@@ -315,5 +367,5 @@ function get_objective_value(opt::VrpOptimizer)
 end
 
 function get_value(::VrpOptimizer, var::JuMP.VariableRef)
-    return value(var)
+    return JuMP.value(var)
 end

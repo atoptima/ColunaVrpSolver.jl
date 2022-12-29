@@ -47,6 +47,11 @@ function VrpGraph(
     graph = VrpGraph(
         0, cptr_, Float64.(bounds), sink, new_sink, Vector{VariableRef}[], false, model
     )
+
+    # cache the model's objective function for performance
+    if model.form_obj == 0
+        model.form_obj = objective_function(model.formulation)
+    end
     return graph
 end
 
@@ -84,7 +89,7 @@ end
 
 function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) where {T}
     varid = getvarid!(graph.model, var)
-    cost = coefficient(objective_function(graph.model.formulation), var)
+    cost = coefficient(graph.model.form_obj, var)
     ccall(
         (:addArcVarMapping_c, path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64),
         graph.cptr, Cint(arcid), Cint(varid - 1), cost

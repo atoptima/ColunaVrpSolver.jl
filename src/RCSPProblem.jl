@@ -116,3 +116,36 @@ function check_enumerated_paths(rcsp::RCSPProblem, paths::Vector{PathVarData})
     )
     return (isrelevant .!= 0)
 end
+
+function get_number_of_enum_paths(rcsp::RCSPProblem)
+    return Int(ccall(
+        (:getNumberOfEnumPaths_c, path), Cint, (Ptr{Cvoid},), rcsp.solver
+    ))
+end
+
+function get_enumerated_paths(rcsp::RCSPProblem)
+    # get the number of paths
+    nb_paths = ccall(
+        (:getNumberOfEnumPaths_c, path), Cint, (Ptr{Cvoid},), rcsp.solver
+    )
+
+    # get the total number of arcs in all paths
+    starts = rcsp.buf_cint_1
+    arcids = rcsp.buf_cint_2
+    resize!(starts, nb_paths + 1)
+    ccall(
+        (:getEnumeratedPaths_c, path), Cint, (Ptr{Cvoid}, Cint, Ptr{Cint}, Cint, Ptr{Cint}),
+        rcsp.solver, nb_paths, starts, 0, arcids
+    )
+    nb_arcs = starts[nb_paths + 1]
+
+    # retrieve the paths
+    resize!(arcids, nb_arcs)
+    ccall(
+        (:getEnumeratedPaths_c, path), Cint, (Ptr{Cvoid}, Cint, Ptr{Cint}, Cint, Ptr{Cint}),
+        rcsp.solver, nb_paths, starts, nb_arcs, arcids
+    )
+
+    # convert and return
+    return [[Int(a) for a in arcids[(starts[p] + 1):starts[p + 1]]] for p in 1:nb_paths]
+end

@@ -1,4 +1,4 @@
-using Test, ColunaVrpSolver, JuMP
+using Test, ColunaVrpSolver, JuMP, Profile, PProf
 
 include("integration/rcsp.jl")
 include("integration/medsize.jl")
