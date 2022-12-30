@@ -119,7 +119,7 @@ function run_capacity_cut_separators(
                 )
                 nextcut!(model.coeffmanager, model)
                 for m in cut_starts[c]:(cut_starts[c+1] - 1)
-                    g = cut_graphids[m + 1] + 1
+                    # g = cut_graphids[m + 1] + 1
                     v = Int(cut_varids[m + 1] + 1)
                     if !hascoeff(model.coeffmanager, v)
                         push!(cut.members, CapacityCutMember(v, cut_coeffs[m + 1]))
@@ -133,3 +133,53 @@ function run_capacity_cut_separators(
     end
     return cuts
 end
+
+struct RankOneCut
+    data::Ptr{Cvoid}
+end
+
+function build_rank_one_cut_separator!(model::M) where {M <: AbstractVrpModel}
+    model.rank1cut_separator = ccall(
+        (:addRankOneCutSeparator_c, path), Ptr{Cvoid}, (Cint, Ref{Ptr{Cvoid}}, Ptr{Cvoid}),
+        Cint(length(model.rcsp_instances)), getfield.(model.rcsp_instances, :graph),
+        get_rcsp_params(model.parameters[1], PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR)
+    )
+end
+
+function run_rank_one_cut_separator(
+    model::M, sol::S
+) where {M <: AbstractVrpModel, S <: AbstractVrpSolution}
+    # prepare the fractional solution data
+    path_values = Float64[]
+    path_graphids = Cint[]
+    path_starts = Cint[]
+    arcids = Cint[]
+    bufpos = 1
+    for (val, path) in sol.paths
+        push!(path_values, val)
+        push!(path_graphids, path.graphid - 1)
+        push!(path_starts, bufpos - 1)
+        for a in path.arcids
+            push!(arcids, a)
+            bufpos += 1
+        end
+    end
+    push!(path_starts, bufpos - 1)
+
+    # call the separator to get the violated cut pointers
+    max_cuts = get_rcsp_rank1cut_param_value(
+        Int, model.parameters[1].rcsp_params, "maxNumPerRound"
+    )
+    # TODO: set the memory type
+    cutbuf = Vector{Ptr{Cvoid}}(undef, max_cuts)
+    nb_cuts = ccall(
+        (:separateRankOneCutCuts_c, path), Cint,
+        (Ptr{Cvoid}, Cint, Cint, Ptr{Float64}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ref{Ptr{Cvoid}}),
+        sep, mem_type, Cint(length(sol.paths)), path_values, path_graphids, path_starts, arcids,
+        cutbuf
+    )
+    resize!(cutbuf, nb_cuts)
+    return cutbuf
+end
+
+# TODO: call the function to compute coefficients

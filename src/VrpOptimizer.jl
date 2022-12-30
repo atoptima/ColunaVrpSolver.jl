@@ -284,11 +284,24 @@ function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
     return
 end
 
+function separate_rank_one_cuts(cbdata::CBD, model::VrpModel) where {CBD}
+    # TODO
+end
+
+function separate_all_cuts(cbdata::CBD, model::VrpModel) where {CBD}
+    separate_capacity_cuts(cbdata, model)
+    # TODO: call the rank one cut separation
+    # - store the cut separation phase in the storage unit (tailing off control?)
+    # - ccall `columnGenerationTerminated(false, 0, 0, -1, 0.0, 0.0, false, bool&)`
+    #   to check whether to stop rank one cut separation by pricing time
+end
+
 function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     empty!(model.parameters)
     push!(model.parameters, VrpParameters(config_fname))
     print_params(model.parameters[1].coluna_vrp_params)
     build_capacity_cut_separators!(model)
+    build_rank_one_cut_separator!(model)
     build_solvers!(model)
 
     # apply the decomposition and store the axis

@@ -11,7 +11,7 @@ module ColunaVrpSolver
     include("Parameters.jl")
     include("VrpGraph.jl")
     include("RCSPProblem.jl")
-    include("CapacityCut.jl")
+    include("VrpCuts.jl")
     include("VrpModel.jl")
     include("VrpMipSolver.jl")
     include("VrpStorage.jl")

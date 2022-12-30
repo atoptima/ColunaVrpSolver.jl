@@ -36,6 +36,11 @@ get_rcsp_params(params::Vector{Ptr{Cvoid}}, classid::Cint) = params[classid + 1]
 get_rcsp_params(params::VrpParameters, classid::Cint) =
     get_rcsp_params(params.rcsp_params, classid)
 
+get_rcsp_rank1cut_param_value(type::Type, params::VrpParameters, name::Symbol) =
+    get_rcsp_parameter(
+        type, get_rcsp_params(params, PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR), String(name)
+    )
+
 # ====== This code has been copied from `https://rosettacode.org/`
 function striplinecomment(a::String, cchars::String="#;")
     b = strip(a)
@@ -144,4 +149,22 @@ function set_rcsp_parameter(params::Ptr{Cvoid}, name::String, value::Float64)
         (:setDoubleParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Float64),
         params, name, value
     ) != 0)
+end
+
+function get_rcsp_parameter(::Type{Bool}, params::Ptr{Cvoid}, name::String)
+    return (ccall(
+        (:getBoolParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    ) != 0)
+end
+
+function get_rcsp_parameter(::Type{Int}, params::Ptr{Cvoid}, name::String)
+    return Int(ccall(
+        (:getIntParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    ))
+end
+
+function get_rcsp_parameter(::Type{Float64}, params::Ptr{Cvoid}, name::String)
+    return ccall(
+        (:getDoubleParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    )
 end
