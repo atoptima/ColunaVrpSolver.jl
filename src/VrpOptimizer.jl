@@ -42,6 +42,43 @@ function should_solve_by_mip(unit::VrpNodeInfoUnit, model::VrpModel)
     return false
 end
 
+function update_cutsep_status!(
+    unit::VrpNodeInfoUnit, model::VrpModel, dual_bnd::Float64, curr_gap::Float64
+)
+    # compute the gap ratio and update the last cut-round gap
+    gap_diff_ratio = (unit.last_cutrnd_gap - curr_gap) / unit.last_cutrnd_gap
+    if unit.separated_cuts
+        println("Gap improvement since the last cut separation : $(gap_diff_ratio) ($(dual_bnd)))")
+    end
+    threshold = get_parameter(model, :CutTailingOffThreshold)
+    @show unit.last_cutrnd_gap, curr_gap, gap_diff_ratio, threshold
+    unit.last_cutrnd_gap = curr_gap
+    @show unit.cutsep_phase
+    if unit.cutsep_phase >= 0
+        model.cutsep_phase = unit.cutsep_phase
+        unit.cutsep_phase = -1
+    end
+
+    # Increase the tailing off counter if the gap did not reduce enough
+    if unit.separated_cuts && gap_diff_ratio < threshold
+        counter_threshold = get_parameter(model, :CutTailingOffCounterThreshold)
+        unit.tailoff_counter += 1
+        if unit.tailoff_counter < counter_threshold
+            println(
+                "Cut generation tailing off counter increased to $(unit.tailoff_counter)"
+            )
+            if unit.tailoff_counter == (counter_threshold - 1) && model.cutsep_phase == 0
+                model.cutsep_phase = 3
+            end
+        else
+            # set the flag to stop cut generation by tailing off
+            unit.should_stop_cutsep = true
+        end
+    end
+    unit.separated_cuts = false
+    return nothing
+end
+
 # Define the function to perform reduced-cost fixing and enumeration via RCSP library
 function run_redcostfixing_and_enumeration!(
     masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
@@ -67,6 +104,9 @@ function run_redcostfixing_and_enumeration!(
     dual_bnd = Coluna.Algorithm.get_lp_dual_bound(optstate).value
     primal_bnd = Coluna.Algorithm.get_ip_primal_bound(optstate).value
     curr_gap = (primal_bnd - dual_bnd) * 100.0 / primal_bnd
+
+    # Update the cut separation phase
+    update_cutsep_status!(unit, model, dual_bnd, curr_gap)
 
     # Stop if the gap did not reduce enough
     gap_ratio = curr_gap / unit.last_rcost_fix_gap
@@ -165,6 +205,10 @@ function run_solve_by_mip!(
     ]
     # @info "In run_solve_by_mip! $(unit.rcsp_states)"
 
+    # Save the cut separation phase
+    @show model.cutsep_phase
+    unit.cutsep_phase = model.cutsep_phase
+
     # Return an unchanged optimization state
     return Coluna.Algorithm.OptimizationState(
         masterform, 
@@ -239,22 +283,7 @@ function solve_RCSP_pricing(
 end
 
 # Define the function to separate capacity cuts via RCSP library
-function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
-    storage = Coluna.MathProg.getstorage(cbdata.form)
-    unit = storage.units[VrpNodeInfoUnit].storage_unit
-    if should_solve_by_mip(unit, model)
-        return
-    end
-
-    # get the solution of the current relaxation
-    sol = VrpSolution(Tuple{Float64, PathVarData}[])
-    for (varid, varval) in cbdata.orig_sol
-        var = Coluna.MathProg.getvar(cbdata.form, varid)
-        if typeof(var.custom_data) == PathVarData
-            push!(sol.paths, (varval, var.custom_data))
-        end
-    end
-
+function separate_capacity_cuts!(cbdata::CBD, sol::VrpSolution, model::VrpModel) where {CBD}
     # call the separator provided by the library
     cuts = run_capacity_cut_separators(model, sol)
 
@@ -281,17 +310,63 @@ function separate_capacity_cuts(cbdata::CBD, model::VrpModel) where {CBD}
             model.formulation, MathOptInterface.UserCut(cbdata), moi_cut
         )
     end
-    return
+    return length(cuts)
 end
 
-function separate_rank_one_cuts(cbdata::CBD, model::VrpModel) where {CBD}
-    # TODO
+function separate_rank_one_cuts!(cbdata::CBD, sol::VrpSolution, model::VrpModel) where {CBD}
+    println("Separating Rank-1 Cuts with up to $(model.cutsep_phase) rows")
+    cuts = run_rank_one_cut_separator(model, sol)
+
+    # add the separated cuts
+    for cut in cuts
+        moi_cut = ScalarConstraint(
+            JuMP.AffExpr(0.0), MathOptInterface.LessThan(cut.rhs)
+        )
+        MathOptInterface.submit(
+            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut, cut
+        )
+    end
+    return length(cuts)
 end
 
-function separate_all_cuts(cbdata::CBD, model::VrpModel) where {CBD}
-    separate_capacity_cuts(cbdata, model)
+function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
+    # Check if cuts should be separated
+    storage = Coluna.MathProg.getstorage(cbdata.form)
+    unit = storage.units[VrpNodeInfoUnit].storage_unit
+    if unit.should_stop_cutsep
+        println("----- Cut generation is stopped due to tailing off -----")
+        unit.should_stop_cutsep = false
+        return nothing
+    end
+    if should_solve_by_mip(unit, model)
+        return nothing
+    end
+
+    # get the solution of the current relaxation
+    sol = VrpSolution(Tuple{Float64, PathVarData}[])
+    for (varid, varval) in cbdata.orig_sol
+        var = Coluna.MathProg.getvar(cbdata.form, varid)
+        if typeof(var.custom_data) == PathVarData
+            push!(sol.paths, (varval, var.custom_data))
+        end
+    end
+
+    # Separate the cuts
+    nb_cuts = separate_capacity_cuts!(cbdata, sol, model)
+    if (nb_cuts == 0) && (model.cutsep_phase == 0)
+        model.cutsep_phase = 3
+    end
+    if model.cutsep_phase >= 3
+        nb_new_cuts = separate_rank_one_cuts!(cbdata, sol, model)
+        nb_cuts += nb_new_cuts
+    end
+    if nb_cuts > 0
+        unit.separated_cuts = true
+    end
+    @show nb_cuts
+    return nothing
+
     # TODO: call the rank one cut separation
-    # - store the cut separation phase in the storage unit (tailing off control?)
     # - ccall `columnGenerationTerminated(false, 0, 0, -1, 0.0, 0.0, false, bool&)`
     #   to check whether to stop rank one cut separation by pricing time
 end
@@ -310,8 +385,9 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     @dantzig_wolfe_decomposition(model.formulation, decomp, VrpGraphs)
     model.bd_graphs[1] = decomp
 
-    # Register the custom variable data
+    # Register the custom variable and constraint data
     customvars!(model.formulation, PathVarData)
+    customconstrs!(model.formulation, RankOneCutData)
 
     # Set the mapped variables as representatives
     subproblems = getsubproblems(decomp)
@@ -323,7 +399,7 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     if !isempty(model.rcc_separators)
         MathOptInterface.set(
             model.formulation, MathOptInterface.UserCutCallback(),
-            (cbdata -> separate_capacity_cuts(cbdata, model))
+            (cbdata -> separate_all_cuts!(cbdata, model))
         )
     end
 

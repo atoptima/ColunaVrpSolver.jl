@@ -3,10 +3,11 @@
     StrongBranchingPhaseOneTreeSizeEstimRatio::Float64 = 0.3
     StrongBranchingPhaseTwoCandidatesNumber::Int = 3
     StrongBranchingPhaseTwoTreeSizeEstimRatio::Float64 = 0.1
-    CutTailingOffThreshold::Float64 = 0.02
     ReducedCostFixingThreshold::Float64 = 0.9
     RCSPmaxNumOfEnumSolutionsForMIP::Int = 10000
     relOptimalityGapTolerance::Float64 = 1e-6
+    CutTailingOffThreshold::Float64 = 0.015
+    CutTailingOffCounterThreshold::Int = 3
 end
 
 function print_params(params::ColunaVrpParams)

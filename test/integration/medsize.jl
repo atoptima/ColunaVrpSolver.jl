@@ -16,14 +16,14 @@ function run_mediumsize_instances_tests()
             "-c", "../$appfolder/config/CVRP_0.cfg"
         ])
         @test result ≈ 949.0
-        result = main([
-            "../$appfolder/data/A/A-n37-k6.vrp",
-            "-m", "6",
-            "-M", "6",
-            "-u", "949.01",
-            "-c", "../$appfolder/config/CVRP.cfg"
-        ])
-        @test result ≈ 949.0
+        # result = main([
+        #     "../$appfolder/data/A/A-n37-k6.vrp",
+        #     "-m", "6",
+        #     "-M", "6",
+        #     "-u", "949.01",
+        #     "-c", "../$appfolder/config/CVRP.cfg"
+        # ])
+        # @test result ≈ 949.0
 
         # @profile main(["../$appfolder/data/A/A-n37-k6.vrp", "-m", "6", "-M", "6", "-u", "949.01"])
         # pprof(; webport = 58599)

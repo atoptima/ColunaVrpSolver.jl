@@ -6,15 +6,25 @@ end
 mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit 
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
+    last_cutrnd_gap::Float64
+    tailoff_counter::Int
+    cutsep_phase::Int
+    separated_cuts::Bool
+    should_stop_cutsep::Bool
     enumerated::Vector{Bool}
 end
 
 Coluna.ColunaBase.new_storage_unit(::Type{VrpNodeInfoUnit}, _) =
-    VrpNodeInfoUnit(RCSPState[], Inf, Bool[])
+    VrpNodeInfoUnit(RCSPState[], Inf, Inf, 0, 0, false, false, Bool[])
 
 struct VrpNodeInfo <: Coluna.ColunaBase.AbstractNewRecord
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
+    last_cutrnd_gap::Float64
+    tailoff_counter::Int
+    cutsep_phase::Int
+    separated_cuts::Bool
+    should_stop_cutsep::Bool
     enumerated::Vector{Bool}
 end
 
@@ -29,21 +39,28 @@ Coluna.Algorithm.record_type_from_key(::VrpNodeInfoKey) = VrpNodeInfo
 function Coluna.ColunaBase.new_record(
     ::Type{VrpNodeInfo}, id::Int, form::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit
 )
-    # @info "In new_record $(unit.rcsp_states)"
+    # @info "In new_record $(unit.cutsep_phase)"
     return VrpNodeInfo(
-        unit.rcsp_states, unit.last_rcost_fix_gap, [enum for enum in unit.enumerated]
+        unit.rcsp_states, unit.last_rcost_fix_gap, unit.last_cutrnd_gap, unit.tailoff_counter,
+        unit.cutsep_phase, unit.separated_cuts, unit.should_stop_cutsep,
+        [enum for enum in unit.enumerated]
     )
 end
 
 function Coluna.ColunaBase.restore_from_record!(
     ::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit, record::VrpNodeInfo
 )
-    # @info "In restore_from_record! $(record.rcsp_states)"
+    # @info "In restore_from_record! $(record.cutsep_phase)"
     for rcsp_state in record.rcsp_states
         restore_rcsp_state(rcsp_state.pricing, rcsp_state.state)
     end
     unit.rcsp_states = record.rcsp_states
     unit.last_rcost_fix_gap = record.last_rcost_fix_gap
+    unit.last_cutrnd_gap = record.last_cutrnd_gap
+    unit.tailoff_counter = record.tailoff_counter
+    unit.cutsep_phase = record.cutsep_phase
+    unit.separated_cuts = record.separated_cuts
+    unit.should_stop_cutsep = record.should_stop_cutsep
     unit.enumerated = [enum for enum in record.enumerated]
     return
 end

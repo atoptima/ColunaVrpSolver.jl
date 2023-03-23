@@ -13,7 +13,7 @@ RCSPProblem(graph::VrpGraph) = RCSPProblem(
 
 struct PathVarData <: BlockDecomposition.AbstractCustomData
     graphid::Int
-    arcids::Vector{Int}
+    arcids::Vector{Cint}
 end
 
 function build_solvers!(model::T) where {T <: AbstractVrpModel}
@@ -49,9 +49,9 @@ function run_rcsp_pricing(rcsp::RCSPProblem, phase::Int, var_rcosts::Vector{Floa
     )
 
     # convert and return them
-    paths = Vector{Int}[]
+    paths = Vector{Cint}[]
     for p in 1:nb_paths
-        push!(paths, [Int(a) for a in arcs[(starts[p] + 1):starts[p + 1]]])
+        push!(paths, [a for a in arcs[(starts[p] + 1):starts[p + 1]]])
     end
     return paths
 end
@@ -101,7 +101,7 @@ function check_enumerated_paths(rcsp::RCSPProblem, paths::Vector{PathVarData})
         push!(graphids, Cint(p.graphid))
         push!(starts, Cint(length(arcids)))
         for a in p.arcids
-            push!(arcids, Cint(a))
+            push!(arcids, a)
         end
     end
     push!(starts, Cint(length(arcids)))

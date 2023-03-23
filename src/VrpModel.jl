@@ -37,6 +37,7 @@ mutable struct VrpModel <: AbstractVrpModel
     bd_graphs::Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}
     rcc_separators::Vector{Ptr{Cvoid}}
     rank1cut_separator::Ptr{Cvoid}
+    cutsep_phase::Int
     rcc_pre_separators::Vector{RCCPreSeparator}
     coeffmanager::CutCoeffManager
     variables_by_id::Vector{VariableRef}
@@ -84,7 +85,8 @@ function VrpModel()
         ),
         node_finalizer = Coluna.Algorithm.NodeFinalizer(
             solve_by_mip_algo, 0, "Solver by MIP"
-        )
+        ),
+        max_nb_cut_rounds = 9999
     )
     branching = Coluna.Algorithm.StrongBranching()
     prodscore = Coluna.Algorithm.ProductScore()
@@ -113,7 +115,7 @@ function VrpModel()
     return VrpModel(
         form, AffExpr(), RCSPProblem[],
         Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
-        Ptr{Cvoid}[], Ptr{Cvoid}(), RCCPreSeparator[], CutCoeffManager(), VariableRef[],
+        Ptr{Cvoid}[], Ptr{Cvoid}(), 0, RCCPreSeparator[], CutCoeffManager(), VariableRef[],
         Dict{VariableRef, Int64}(), redcostfix_enum_algo, solve_by_mip_algo, VrpParameters[]
     )
 end

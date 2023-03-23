@@ -11,6 +11,12 @@ struct CapacityCut
     members::Vector{CapacityCutMember}
 end
 
+struct RankOneCutData <: BlockDecomposition.AbstractCustomData
+    rhs::Float64
+    data_ptr::Ptr{Cvoid}
+    separator_ptr::Ptr{Cvoid}
+end
+
 struct RCCPreSeparator
     graphs::Vector{Ptr{Cvoid}}
     vertids::Vector{Cint}
@@ -134,16 +140,29 @@ function run_capacity_cut_separators(
     return cuts
 end
 
-struct RankOneCut
-    data::Ptr{Cvoid}
-end
-
 function build_rank_one_cut_separator!(model::M) where {M <: AbstractVrpModel}
     model.rank1cut_separator = ccall(
         (:addRankOneCutSeparator_c, path), Ptr{Cvoid}, (Cint, Ref{Ptr{Cvoid}}, Ptr{Cvoid}),
-        Cint(length(model.rcsp_instances)), getfield.(model.rcsp_instances, :graph),
+        Cint(length(model.rcsp_instances)), map(x -> x.graph.cptr, model.rcsp_instances),
         get_rcsp_params(model.parameters[1], PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR)
     )
+end
+
+function get_cutbuf_size(cutsep_phase::Int, max_cuts::Int)
+    bufsize = max_cuts
+    if cutsep_phase >= 3
+        bufsize += div(max_cuts * 3, 2)
+    end
+    if cutsep_phase >= 4
+        bufsize += max_cuts * (cutsep_phase - 3)
+    end
+    # @show bufsize
+    return bufsize
+end
+
+function get_rank1cut_rhs(cutptr::Ptr{Cvoid})
+    # @show cutptr
+    return ccall((:getRankOneCutRhs_c, path), Float64, (Ptr{Cvoid},), cutptr)
 end
 
 function run_rank_one_cut_separator(
@@ -167,19 +186,59 @@ function run_rank_one_cut_separator(
     push!(path_starts, bufpos - 1)
 
     # call the separator to get the violated cut pointers
-    max_cuts = get_rcsp_rank1cut_param_value(
-        Int, model.parameters[1].rcsp_params, "maxNumPerRound"
-    )
-    # TODO: set the memory type
-    cutbuf = Vector{Ptr{Cvoid}}(undef, max_cuts)
-    nb_cuts = ccall(
+    max_cuts = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumPerRound)
+    mem_type = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :memoryType)
+    phase = [Cint(model.cutsep_phase)]
+    cutbuf = Vector{Ptr{Cvoid}}(undef, get_cutbuf_size(model.cutsep_phase, max_cuts))
+    nb_rank1cuts = ccall(
         (:separateRankOneCutCuts_c, path), Cint,
-        (Ptr{Cvoid}, Cint, Cint, Ptr{Float64}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ref{Ptr{Cvoid}}),
-        sep, mem_type, Cint(length(sol.paths)), path_values, path_graphids, path_starts, arcids,
-        cutbuf
+        (
+            Ptr{Cvoid}, Ptr{Cint}, Cint, Cint, Ptr{Float64}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint},
+            Ref{Ptr{Cvoid}}
+        ),
+        model.rank1cut_separator, phase, mem_type, Cint(length(sol.paths)), path_values,
+        path_graphids, path_starts, arcids, cutbuf
     )
-    resize!(cutbuf, nb_cuts)
-    return cutbuf
+    @show nb_rank1cuts
+    model.cutsep_phase = phase[1]
+    resize!(cutbuf, nb_rank1cuts)
+
+    # convert and return the cuts
+    cuts = [
+        RankOneCutData(get_rank1cut_rhs(cutptr), cutptr, model.rank1cut_separator)
+        for cutptr in cutbuf
+    ]
+    # rhss = getfield.(cuts, :rhs)
+    # @show rhss
+    # viols = [compute_violation(c, sol) for c in cuts]
+    # @show viols
+    return cuts
 end
 
-# TODO: call the function to compute coefficients
+# function to compute rank-1 cut coefficients called by Coluna
+function Coluna.MathProg.computecoeff(
+    ::Coluna.Variable, var_custom_data::PathVarData,
+    ::Coluna.Constraint, constr_custom_data::RankOneCutData
+)
+    return compute_coeff_from_data(var_custom_data, constr_custom_data)
+end
+function compute_coeff_from_data(
+    var_custom_data::PathVarData, constr_custom_data::RankOneCutData
+)
+    arcids = var_custom_data.arcids
+    return ccall(
+        (:getRankOneCutCoeff_c, path), Float64, (Ptr{Cvoid}, Cint, Cint, Ptr{Cint}, Ptr{Cvoid}),
+        constr_custom_data.separator_ptr, Cint(var_custom_data.graphid - 1), Cint(length(arcids)),
+        arcids, constr_custom_data.data_ptr
+    )
+end
+
+# Compute the violation of a rank-1 cut for a given solution
+function compute_violation(cut::RankOneCutData, sol::S) where {S <: AbstractVrpSolution}
+    viol = -cut.rhs
+    for (val, path) in sol.paths
+        coeff = compute_coeff_from_data(path, cut)
+        viol += coeff * val
+    end
+    return viol
+end
