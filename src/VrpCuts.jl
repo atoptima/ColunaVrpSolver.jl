@@ -141,6 +141,12 @@ function run_capacity_cut_separators(
 end
 
 function build_rank_one_cut_separator!(model::M) where {M <: AbstractVrpModel}
+    # make sure that all graphs are preprocessed
+    for rcsp in model.rcsp_instances
+        preprocess_graph!(rcsp.graph)
+    end
+
+    # call the C++ code to build the separator
     model.rank1cut_separator = ccall(
         (:addRankOneCutSeparator_c, path), Ptr{Cvoid}, (Cint, Ref{Ptr{Cvoid}}, Ptr{Cvoid}),
         Cint(length(model.rcsp_instances)), map(x -> x.graph.cptr, model.rcsp_instances),

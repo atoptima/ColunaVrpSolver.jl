@@ -94,7 +94,7 @@ end
 function Coluna.Algorithm.get_child_algorithms(
     algo::Coluna.Algorithm.BeforeCutGenAlgo, reform::Coluna.MathProg.Reformulation
 )
-    child_algos = Tuple{Coluna.Algorithm.AbstractAlgorithm, Coluna.MathProg.AbstractModel}[]
+    child_algos = Tuple{Coluna.AlgoAPI.AbstractAlgorithm, Coluna.MathProg.AbstractModel}[]
     push!(child_algos, (algo.algorithm, reform))
     return child_algos
 end

@@ -67,8 +67,9 @@ function update_cutsep_status!(
             println(
                 "Cut generation tailing off counter increased to $(unit.tailoff_counter)"
             )
+            max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
             if unit.tailoff_counter == (counter_threshold - 1) && model.cutsep_phase == 0
-                model.cutsep_phase = 3
+                model.cutsep_phase = min(3, max_rows)
             end
         else
             # set the flag to stop cut generation by tailing off
@@ -352,9 +353,13 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
     end
 
     # Separate the cuts
+    max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
+    if isempty(model.rcc_separators)
+        model.cutsep_phase = min(3, max_rows)
+    end
     nb_cuts = separate_capacity_cuts!(cbdata, sol, model)
     if (nb_cuts == 0) && (model.cutsep_phase == 0)
-        model.cutsep_phase = 3
+        model.cutsep_phase = min(3, max_rows)
     end
     if model.cutsep_phase >= 3
         nb_new_cuts = separate_rank_one_cuts!(cbdata, sol, model)
@@ -395,13 +400,11 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
         subproblemrepresentative(var, subproblems)
     end
 
-    # set the capacity cut callback
-    if !isempty(model.rcc_separators)
-        MathOptInterface.set(
-            model.formulation, MathOptInterface.UserCutCallback(),
-            (cbdata -> separate_all_cuts!(cbdata, model))
-        )
-    end
+    # set the cut callback
+    MathOptInterface.set(
+        model.formulation, MathOptInterface.UserCutCallback(),
+        (cbdata -> separate_all_cuts!(cbdata, model))
+    )
 
     # preallocate a vector to store the reduced costs
     rcosts = zeros(Float64, get_maxvarid(model))

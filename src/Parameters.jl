@@ -89,10 +89,11 @@ function VrpParameters(fname::String)
     coluna_vrp_params = ColunaVrpParams()
     buf = split(striplinecomment(read(fname, String)), ('=', ' ', '\n'), keepempty = false)
     for line in 1:2:length(buf)
-        if buf[line][1:4] == "RCSP" && !is_coluna_param(buf[line])
-            if buf[line][5:11] == "rankOneCuts"
+        linelen = length(buf[line])
+        if linelen > 4 && buf[line][1:4] == "RCSP" && !is_coluna_param(buf[line])
+            if linelen > 15 && buf[line][5:15] == "rankOneCuts"
                 params_class = PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR
-                param_name = lowercasefirst(String(buf[line][12:end]))
+                param_name = lowercasefirst(String(buf[line][16:end]))
             else
                 params_class = PARAM_CLASS_SOLVER
                 param_name = String(buf[line][5:end])

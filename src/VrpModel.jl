@@ -94,7 +94,7 @@ function VrpModel()
         20, Coluna.Algorithm.RestrMasterLPConquer(), prodscore)
     )
     push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colcutgen, prodscore))
-    push!(branching.rules, Coluna.Algorithm.PrioritisedBranchingRule(
+    push!(branching.rules, Coluna.Algorithm.Branching.PrioritisedBranchingRule(
         Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0)
     )
 
