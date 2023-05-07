@@ -67,18 +67,23 @@ end
 
 function VrpModel()
     # Create a Coluna model
-    colgenstages = Coluna.Algorithm.ColumnGeneration[]
-    for stage in 1:3
-        push!(colgenstages, Coluna.Algorithm.ColumnGeneration(
-            pricing_prob_solve_alg = Coluna.Algorithm.SolveIpForm(optimizer_id = stage),
-            smoothing_stabilization = 1.0
-        ))
-    end
+    colgen = Coluna.Algorithm.ColumnGeneration(
+        pricing_prob_solve_alg = Coluna.Algorithm.SolveIpForm(
+            user_params = Coluna.Algorithm.UserOptimize(), 
+            moi_params = Coluna.Algorithm.MoiOptimize(
+                deactivate_artificial_vars = false,
+                enforce_integrality = false
+            )
+        ),
+        stages_pricing_solver_ids = [1, 2, 3],
+        throw_column_already_inserted_warning = true,
+        # smoothing_stabilization = 1.0
+    )
     dummyfunc() = nothing
     redcostfix_enum_algo = RedCostFixAndEnumAlgorithm(func = dummyfunc)
     solve_by_mip_algo = SolveByMipAlgorithm(func = dummyfunc)
     colcutgen = Coluna.Algorithm.ColCutGenConquer(
-        stages = colgenstages,
+        colgen = colgen,
         primal_heuristics = [],
         before_cutgen_user_algorithm = Coluna.Algorithm.BeforeCutGenAlgo(
             redcostfix_enum_algo, "Reduced cost fixing and enumeration"

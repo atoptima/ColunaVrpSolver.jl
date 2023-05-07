@@ -218,16 +218,33 @@ function run_solve_by_mip!(
     )
 end
 
+# function to get the dual values of all rank-one cuts
+function get_rankonecut_duals(cbdata::CB) where {CB}
+    cutdata = Ptr{Cvoid}[]
+    duals = Float64[]
+    for (_, constr) in Coluna.MathProg.getconstrs(cbdata.form.parent_formulation)
+        if typeof(constr.custom_data) == RankOneCutData
+            dualval = Coluna.MathProg.getcurincval(cbdata.form.parent_formulation, constr)
+            if abs(dualval) > 1e-7  # FIXME: make 1e-7 configurable
+                push!(cutdata, constr.custom_data.data_ptr)
+                push!(duals, dualval)
+            end
+        end
+    end
+    return cutdata, duals
+end
+
 # Define the function to perform pricing via RCSP library
 function solve_RCSP_pricing(
     cbdata::CB, stage::Int, model::VrpModel, rcosts::Vector{Float64}
 ) where {CB}
-    # Get the reduced costs
+    # Get the reduced costs and the non-robust cuts' duals
     for vid in 1:get_maxvarid(model)
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
             cbdata, model.variables_by_id[vid]
         )
     end
+    r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
     # setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
     # @show setup_var
     # var_rcosts = tuple.(model.variables_by_id, rcosts)
@@ -244,13 +261,10 @@ function solve_RCSP_pricing(
         unit.enumerated = zeros(Bool, length(model.rcsp_instances))
     end
     _stage = unit.enumerated[spid] ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
-    paths = run_rcsp_pricing(rcsp, _stage, rcosts)
+    paths = run_rcsp_pricing(rcsp, _stage, rcosts, r1cut_ptrs, r1cut_duals)
     # if unit.enumerated[spid]
     #     @show stage, paths
     # end
-    if !isempty(paths)
-        print("<st=$(stage - 1)>")  # TODO: move this to the Coluna's log
-    end
     # @show paths
 
     # submit the priced paths to Coluna
@@ -267,6 +281,12 @@ function solve_RCSP_pricing(
                 rc += rcosts[vid]
             end
         end
+        path_data = PathVarData(rcsp.graph.id, p)
+        for i in eachindex(r1cut_ptrs)
+            rc -= compute_coeff_from_data(
+                    path_data, RankOneCutData(0.0, r1cut_ptrs[i], model.rank1cut_separator)
+                ) * r1cut_duals[i]
+        end
         min_rc = min(rc, min_rc)
         for vid in keys(varcount)
             push!(solvals, Float64(varcount[vid]))
@@ -274,7 +294,7 @@ function solve_RCSP_pricing(
         end
         MathOptInterface.submit(
             model.formulation, BlockDecomposition.PricingSolution(cbdata),
-            rc, solvars, solvals, PathVarData(rcsp.graph.id, p)
+            rc, solvars, solvals, path_data
         )
     end
     MathOptInterface.submit(

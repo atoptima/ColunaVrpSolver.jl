@@ -3,7 +3,7 @@ struct RCSPState
     state::Ptr{Cvoid}
 end
 
-mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit 
+mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractRecordUnit 
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
     last_cutrnd_gap::Float64
@@ -14,10 +14,10 @@ mutable struct VrpNodeInfoUnit <: Coluna.ColunaBase.AbstractNewStorageUnit
     enumerated::Vector{Bool}
 end
 
-Coluna.ColunaBase.new_storage_unit(::Type{VrpNodeInfoUnit}, _) =
+Coluna.ColunaBase.storage_unit(::Type{VrpNodeInfoUnit}, _) =
     VrpNodeInfoUnit(RCSPState[], Inf, Inf, 0, 0, false, false, Bool[])
 
-struct VrpNodeInfo <: Coluna.ColunaBase.AbstractNewRecord
+struct VrpNodeInfo <: Coluna.ColunaBase.AbstractRecord
     rcsp_states::Vector{RCSPState}
     last_rcost_fix_gap::Float64
     last_cutrnd_gap::Float64
@@ -36,7 +36,7 @@ struct VrpNodeInfoKey <: Coluna.Algorithm.AbstractStorageUnitKey end
 Coluna.Algorithm.key_from_storage_unit_type(::Type{VrpNodeInfoUnit}) = VrpNodeInfoKey()
 Coluna.Algorithm.record_type_from_key(::VrpNodeInfoKey) = VrpNodeInfo
 
-function Coluna.ColunaBase.new_record(
+function Coluna.ColunaBase.record(
     ::Type{VrpNodeInfo}, id::Int, form::Coluna.MathProg.Formulation, unit::VrpNodeInfoUnit
 )
     # @info "In new_record $(unit.cutsep_phase)"

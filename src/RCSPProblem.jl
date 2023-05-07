@@ -27,15 +27,22 @@ function build_solvers!(model::T) where {T <: AbstractVrpModel}
     return
 end
 
-function run_rcsp_pricing(rcsp::RCSPProblem, phase::Int, var_rcosts::Vector{Float64})
+function run_rcsp_pricing(
+    rcsp::RCSPProblem, phase::Int, var_rcosts::Vector{Float64}, r1cut_ptrs::Vector{Ptr{Cvoid}},
+    r1cut_duals::Vector{Float64}
+)
     # Call the RCSP pricing solver
+    nb_r1cuts = length(r1cut_ptrs)
     output = [Ptr{Cvoid}(0)]
     nb_arcs = [Cint(0)]
     nb_paths = Int(ccall(
         (:runPricing_c, path), Cint,
-        (Ptr{Cvoid}, Cint, Cint, Ptr{Float64}, Ref{Ptr{Cvoid}}, Ref{Cint}),
-        rcsp.solver, Cint(phase), Cint(length(var_rcosts)), var_rcosts,
-        output, nb_arcs
+        (
+            Ptr{Cvoid}, Cint, Cint, Ptr{Float64}, Cint, Ref{Ptr{Cvoid}}, Ptr{Float64},
+            Ref{Ptr{Cvoid}}, Ref{Cint}
+        ),
+        rcsp.solver, Cint(phase), Cint(length(var_rcosts)), var_rcosts, nb_r1cuts, r1cut_ptrs,
+        r1cut_duals, output, nb_arcs
     ))
 
     # get the output paths, each path as a vertor of arc ids
