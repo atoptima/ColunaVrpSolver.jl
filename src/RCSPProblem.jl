@@ -64,12 +64,16 @@ function run_rcsp_pricing(
 end
 
 function run_rcsp_rcostfix_and_enum(
-    rcsp::RCSPProblem, var_rcosts::Vector{Float64}, threshold::Float64
+    rcsp::RCSPProblem, var_rcosts::Vector{Float64}, r1cut_ptrs::Vector{Ptr{Cvoid}},
+    r1cut_duals::Vector{Float64}, threshold::Float64
 )
     # Call the RCSP pricing solver to fix and enumerate
+    nb_r1cuts = length(r1cut_ptrs)
     return (ccall(
-        (:runRedCostFixingAndEnum_c, path), Cint, (Ptr{Cvoid}, Cint, Ptr{Float64}, Float64),
-        rcsp.solver, Cint(length(var_rcosts)), var_rcosts, threshold
+        (:runRedCostFixingAndEnum_c, path), Cint,
+        (Ptr{Cvoid}, Cint, Ptr{Float64}, Cint, Ref{Ptr{Cvoid}}, Ptr{Float64}, Float64),
+        rcsp.solver, Cint(length(var_rcosts)), var_rcosts, nb_r1cuts, r1cut_ptrs, r1cut_duals,
+        threshold
     ) != 0)
 end
 

@@ -80,6 +80,22 @@ function update_cutsep_status!(
     return nothing
 end
 
+# function to get the dual values of all rank-one cuts
+function get_rankonecut_duals(cbdata::CB) where {CB}
+    cutdata = Ptr{Cvoid}[]
+    duals = Float64[]
+    for (_, constr) in Coluna.MathProg.getconstrs(cbdata.form.parent_formulation)
+        if typeof(constr.custom_data) == RankOneCutData
+            dualval = Coluna.MathProg.getcurincval(cbdata.form.parent_formulation, constr)
+            if abs(dualval) > 1e-7  # FIXME: make 1e-7 configurable
+                push!(cutdata, constr.custom_data.data_ptr)
+                push!(duals, dualval)
+            end
+        end
+    end
+    return cutdata, duals
+end
+
 # Define the function to perform reduced-cost fixing and enumeration via RCSP library
 function run_redcostfixing_and_enumeration!(
     masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
@@ -93,12 +109,13 @@ function run_redcostfixing_and_enumeration!(
         return false
     end
 
-    # Get the reduced costs
+    # Get the reduced costs and dual values
     for vid in 1:get_maxvarid(model)
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
             cbdata, model.variables_by_id[vid]
         )
     end
+    r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
     # @show rcosts
 
     # Get the primal and dual bounds and compute the current gap
@@ -132,7 +149,7 @@ function run_redcostfixing_and_enumeration!(
     spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
     unit.enumerated[spid] |= run_rcsp_rcostfix_and_enum(
-        rcsp, rcosts, primal_bnd - dual_bnd - convdual
+        rcsp, rcosts, r1cut_ptrs, r1cut_duals, primal_bnd - dual_bnd - convdual
     )
     unit.last_rcost_fix_gap = curr_gap
 
@@ -216,22 +233,6 @@ function run_solve_by_mip!(
         ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(optstate),
         termination_status = Coluna.OTHER_LIMIT
     )
-end
-
-# function to get the dual values of all rank-one cuts
-function get_rankonecut_duals(cbdata::CB) where {CB}
-    cutdata = Ptr{Cvoid}[]
-    duals = Float64[]
-    for (_, constr) in Coluna.MathProg.getconstrs(cbdata.form.parent_formulation)
-        if typeof(constr.custom_data) == RankOneCutData
-            dualval = Coluna.MathProg.getcurincval(cbdata.form.parent_formulation, constr)
-            if abs(dualval) > 1e-7  # FIXME: make 1e-7 configurable
-                push!(cutdata, constr.custom_data.data_ptr)
-                push!(duals, dualval)
-            end
-        end
-    end
-    return cutdata, duals
 end
 
 # Define the function to perform pricing via RCSP library
