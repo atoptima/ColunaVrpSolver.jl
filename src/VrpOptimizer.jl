@@ -102,6 +102,7 @@ function run_redcostfixing_and_enumeration!(
     optstate::Coluna.Algorithm.OptimizationState
 ) where {CB}
     # @info "In run_redcostfixing_and_enumeration!"
+    return false
 
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
@@ -246,6 +247,7 @@ function solve_RCSP_pricing(
         )
     end
     r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
+    # @show r1cut_duals
     # setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
     # @show setup_var
     # var_rcosts = tuple.(model.variables_by_id, rcosts)
@@ -298,6 +300,7 @@ function solve_RCSP_pricing(
             rc, solvars, solvals, path_data
         )
     end
+    # @show min_rc
     MathOptInterface.submit(
         model.formulation, BlockDecomposition.PricingDualBound(cbdata),
         (_stage == 0) ? min_rc : -Inf
@@ -382,7 +385,7 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
     if (nb_cuts == 0) && (model.cutsep_phase == 0)
         model.cutsep_phase = min(3, max_rows)
     end
-    if model.cutsep_phase >= 3
+    if model.cutsep_phase >= 1
         nb_new_cuts = separate_rank_one_cuts!(cbdata, sol, model)
         nb_cuts += nb_new_cuts
     end

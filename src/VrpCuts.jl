@@ -171,6 +171,24 @@ function get_rank1cut_rhs(cutptr::Ptr{Cvoid})
     return ccall((:getRankOneCutRhs_c, path), Float64, (Ptr{Cvoid},), cutptr)
 end
 
+function get_r1cut_bufsize(max_cuts::Int, max_rows::Int)
+    bufsize = 2 * max_cuts  # packing and covering
+    if max_rows >= 3
+        bufsize += 3 * max_cuts  # packing and covering
+    end
+    for r in 4:5
+        if max_rows >= r
+            bufsize += 2 * max_cuts  # packing and covering
+        end
+    end
+    for r in 6:8
+        if max_rows >= r
+            bufsize += max_cuts  # packing only
+        end
+    end
+    return bufsize
+end
+
 function run_rank_one_cut_separator(
     model::M, sol::S
 ) where {M <: AbstractVrpModel, S <: AbstractVrpSolution}
@@ -193,9 +211,11 @@ function run_rank_one_cut_separator(
 
     # call the separator to get the violated cut pointers
     max_cuts = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumPerRound)
+    max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
+    bufsize = get_r1cut_bufsize(max_cuts, max_rows)
     mem_type = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :memoryType)
     phase = [Cint(model.cutsep_phase)]
-    cutbuf = Vector{Ptr{Cvoid}}(undef, get_cutbuf_size(model.cutsep_phase, max_cuts))
+    cutbuf = Vector{Ptr{Cvoid}}(undef, get_cutbuf_size(model.cutsep_phase, bufsize))
     nb_rank1cuts = ccall(
         (:separateRankOneCutCuts_c, path), Cint,
         (
@@ -228,6 +248,9 @@ function Coluna.MathProg.computecoeff(
 )
     return compute_coeff_from_data(var_custom_data, constr_custom_data)
 end
+Coluna.MathProg.computecoeff(
+    ::Coluna.Variable, ::PathVarData, ::Coluna.Constraint, ::Nothing
+) = 0.0
 function compute_coeff_from_data(
     var_custom_data::PathVarData, constr_custom_data::RankOneCutData
 )
