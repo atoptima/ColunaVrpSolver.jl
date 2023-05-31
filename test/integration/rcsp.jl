@@ -56,6 +56,10 @@ function run_rcsp_integration_tests()
         for ng in (false, true)
             # build a toy VRP model with one graph
             toy, x = build_toy_model(with_ngpaths = ng)
+            push!(
+                toy.parameters,
+                ColunaVrpSolver.VrpParameters("../$appfolder/config/CVRP_toy.cfg")
+            )
             ColunaVrpSolver.build_solvers!(toy)
             rcsp = toy.rcsp_instances[1] 
             @test rcsp.solver != Ptr{Cvoid}(0)
@@ -73,7 +77,9 @@ function run_rcsp_integration_tests()
                 (i, j) = var_to_edge[var]
                 var_rcosts[varid] = abs(j - i) - 50.0 * (d(i) + d(j))
             end
-            priced_paths = ColunaVrpSolver.run_rcsp_pricing(rcsp, 0, var_rcosts)
+            priced_paths = ColunaVrpSolver.run_rcsp_pricing(
+                rcsp, 0, var_rcosts, Ptr{Cvoid}[], Float64[]
+            )
             if ng
                 expected_paths = [
                     [0, 8, 16, 7], [2, 16, 13, 1], [0, 12, 17, 3], [6, 17, 9, 1],
@@ -106,10 +112,10 @@ function run_rcsp_integration_tests()
             toy, x = build_toy_model(
                 with_ngpaths = ng, with_capacitycuts = cc
             )
+            opt = VrpOptimizer(toy, "../$appfolder/config/CVRP_toy.cfg", "toy")
             if cc
                 @test toy.rcc_separators[1] != Ptr{Cvoid}(0)
             end
-            opt = VrpOptimizer(toy, "", "toy")
             set_cutoff!(opt, 100.0)
             (status, solution_found) = optimize!(opt)
 

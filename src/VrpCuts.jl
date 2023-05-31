@@ -225,7 +225,7 @@ function run_rank_one_cut_separator(
         model.rank1cut_separator, phase, mem_type, Cint(length(sol.paths)), path_values,
         path_graphids, path_starts, arcids, cutbuf
     )
-    @show nb_rank1cuts
+    # @show nb_rank1cuts
     model.cutsep_phase = phase[1]
     resize!(cutbuf, nb_rank1cuts)
 

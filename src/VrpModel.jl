@@ -77,7 +77,7 @@ function VrpModel()
         ),
         stages_pricing_solver_ids = [1, 2, 3],
         throw_column_already_inserted_warning = true,
-        # smoothing_stabilization = 1.0
+        smoothing_stabilization = 1.0
     )
     dummyfunc() = nothing
     redcostfix_enum_algo = RedCostFixAndEnumAlgorithm(func = dummyfunc)

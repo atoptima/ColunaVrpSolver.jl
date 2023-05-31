@@ -51,9 +51,9 @@ function update_cutsep_status!(
         println("Gap improvement since the last cut separation : $(gap_diff_ratio) ($(dual_bnd)))")
     end
     threshold = get_parameter(model, :CutTailingOffThreshold)
-    @show unit.last_cutrnd_gap, curr_gap, gap_diff_ratio, threshold
+    # @show unit.last_cutrnd_gap, curr_gap, gap_diff_ratio, threshold
     unit.last_cutrnd_gap = curr_gap
-    @show unit.cutsep_phase
+    # @show unit.cutsep_phase
     if unit.cutsep_phase >= 0
         model.cutsep_phase = unit.cutsep_phase
         unit.cutsep_phase = -1
@@ -88,6 +88,8 @@ function get_rankonecut_duals(cbdata::CB) where {CB}
         if typeof(constr.custom_data) == RankOneCutData
             dualval = Coluna.MathProg.getcurincval(cbdata.form.parent_formulation, constr)
             if abs(dualval) > 1e-7  # FIXME: make 1e-7 configurable
+                # ctrname = Coluna.MathProg.getname(cbdata.form.parent_formulation, constr)
+                # @show ctrname, dualval, constr.custom_data.data_ptr
                 push!(cutdata, constr.custom_data.data_ptr)
                 push!(duals, dualval)
             end
@@ -102,8 +104,6 @@ function run_redcostfixing_and_enumeration!(
     optstate::Coluna.Algorithm.OptimizationState
 ) where {CB}
     # @info "In run_redcostfixing_and_enumeration!"
-    return false
-
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
     if should_solve_by_mip(unit, model)
@@ -225,7 +225,7 @@ function run_solve_by_mip!(
     # @info "In run_solve_by_mip! $(unit.rcsp_states)"
 
     # Save the cut separation phase
-    @show model.cutsep_phase
+    # @show model.cutsep_phase
     unit.cutsep_phase = model.cutsep_phase
 
     # Return an unchanged optimization state
@@ -247,6 +247,7 @@ function solve_RCSP_pricing(
         )
     end
     r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
+    # @show r1cut_ptrs
     # @show r1cut_duals
     # setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
     # @show setup_var
@@ -263,8 +264,8 @@ function solve_RCSP_pricing(
     if isempty(unit.enumerated)
         unit.enumerated = zeros(Bool, length(model.rcsp_instances))
     end
-    _stage = unit.enumerated[spid] ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
-    paths = run_rcsp_pricing(rcsp, _stage, rcosts, r1cut_ptrs, r1cut_duals)
+    # _stage = unit.enumerated[spid] ? 0 : (stage - 1) # FIXME: Coluna needs solutions!
+    paths = run_rcsp_pricing(rcsp, stage - 1, rcosts, r1cut_ptrs, r1cut_duals)
     # if unit.enumerated[spid]
     #     @show stage, paths
     # end
@@ -285,11 +286,18 @@ function solve_RCSP_pricing(
             end
         end
         path_data = PathVarData(rcsp.graph.id, p)
+        arcs = [model.rcsp_instances[1].graph.arcs[a] for a in p]
+        degrees = [length([a for a in arcs if a[2] == i]) for i in (1, 3, 5, 8, 20)]
         for i in eachindex(r1cut_ptrs)
-            rc -= compute_coeff_from_data(
-                    path_data, RankOneCutData(0.0, r1cut_ptrs[i], model.rank1cut_separator)
-                ) * r1cut_duals[i]
+            coeff = compute_coeff_from_data(
+                path_data, RankOneCutData(0.0, r1cut_ptrs[i], model.rank1cut_separator)
+            )
+            # if coeff != 0.0 && length(arcs) == 8 && degrees == [1, 2, 1, 2, 1] 
+            #     @show coeff, r1cut_duals[i]
+            # end
+            rc -= coeff * r1cut_duals[i]
         end
+        # @show rc, arcs
         min_rc = min(rc, min_rc)
         for vid in keys(varcount)
             push!(solvals, Float64(varcount[vid]))
@@ -303,7 +311,7 @@ function solve_RCSP_pricing(
     # @show min_rc
     MathOptInterface.submit(
         model.formulation, BlockDecomposition.PricingDualBound(cbdata),
-        (_stage == 0) ? min_rc : -Inf
+        (stage == 1) ? min_rc : -Inf
     )
 end
 
@@ -378,6 +386,7 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
 
     # Separate the cuts
     max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
+    max_cuts = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumPerRound)
     if isempty(model.rcc_separators)
         model.cutsep_phase = min(3, max_rows)
     end
@@ -385,14 +394,14 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
     if (nb_cuts == 0) && (model.cutsep_phase == 0)
         model.cutsep_phase = min(3, max_rows)
     end
-    if model.cutsep_phase >= 1
+    if model.cutsep_phase >= 1 && max_rows > 0 && max_cuts > 0
         nb_new_cuts = separate_rank_one_cuts!(cbdata, sol, model)
         nb_cuts += nb_new_cuts
     end
     if nb_cuts > 0
         unit.separated_cuts = true
     end
-    @show nb_cuts
+    # @show nb_cuts
     return nothing
 
     # TODO: call the rank one cut separation
@@ -405,7 +414,11 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     push!(model.parameters, VrpParameters(config_fname))
     print_params(model.parameters[1].coluna_vrp_params)
     build_capacity_cut_separators!(model)
-    build_rank_one_cut_separator!(model)
+    max_cuts = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumPerRound)
+    max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
+    if max_cuts > 0 && max_rows > 0
+        build_rank_one_cut_separator!(model)
+    end
     build_solvers!(model)
 
     # apply the decomposition and store the axis

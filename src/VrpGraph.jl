@@ -12,6 +12,7 @@ mutable struct VrpGraph{T}
     mappings::Vector{Vector{VariableRef}}
     is_preproc::Bool
     model::T
+    arcs::Dict{Int,Tuple{Int, Int}}
 end
 
 function get_mappedvarids(g::VrpGraph, arcid::Int)
@@ -45,7 +46,8 @@ function VrpGraph(
         Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink)
     )
     graph = VrpGraph(
-        0, cptr_, Float64.(bounds), sink, new_sink, Vector{VariableRef}[], false, model
+        0, cptr_, Float64.(bounds), sink, new_sink, Vector{VariableRef}[], false, model,
+        Dict{Int,Tuple{Int, Int}}()
     )
 
     # cache the model's objective function for performance
@@ -76,6 +78,7 @@ function add_arc!(graph::VrpGraph, tail::Int, head::Int)
     id = Int(ccall(
         (:addArc_c, path), Cint, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(tail), Cint(h)
     ))
+    graph.arcs[id] = (tail, head)
     return id
 end
 
