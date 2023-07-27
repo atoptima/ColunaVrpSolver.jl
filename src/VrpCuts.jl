@@ -243,14 +243,11 @@ end
 
 # function to compute rank-1 cut coefficients called by Coluna
 function Coluna.MathProg.computecoeff(
-    ::Coluna.Variable, var_custom_data::PathVarData,
-    ::Coluna.Constraint, constr_custom_data::RankOneCutData
+    var_custom_data::PathVarData, constr_custom_data::RankOneCutData
 )
     return compute_coeff_from_data(var_custom_data, constr_custom_data)
 end
-Coluna.MathProg.computecoeff(
-    ::Coluna.Variable, ::PathVarData, ::Coluna.Constraint, ::Nothing
-) = 0.0
+Coluna.MathProg.computecoeff(::PathVarData, ::Nothing) = 0.0
 function compute_coeff_from_data(
     var_custom_data::PathVarData, constr_custom_data::RankOneCutData
 )
