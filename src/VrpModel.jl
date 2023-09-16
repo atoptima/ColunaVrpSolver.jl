@@ -65,6 +65,13 @@ function getvarid!(model::VrpModel, var::VariableRef)
     return varid
 end
 
+const GRB_ENV_REF = Ref{Gurobi.Env}()
+
+function __init__()
+    GRB_ENV_REF[] = Gurobi.Env()
+    return nothing
+end
+
 function VrpModel()
     # Create a Coluna model
     colgen = Coluna.Algorithm.ColumnGeneration(
@@ -103,7 +110,7 @@ function VrpModel()
         Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0)
     )
 
-    coluna = JuMP.optimizer_with_attributes(
+    coluna = optimizer_with_attributes(
         Coluna.Optimizer,
         "params" => Coluna.Params(
             solver = Coluna.Algorithm.TreeSearchAlgorithm(
@@ -112,7 +119,8 @@ function VrpModel()
                 dividealg = branching
             )
         ),
-        "default_optimizer" => Gurobi.Optimizer # for the master & the subproblems
+        "default_optimizer"  => () -> Gurobi.Optimizer(GRB_ENV_REF[]),
+            # for the master & the subproblems
     )
     form = BlockModel(coluna) # , direct_model = true)
 

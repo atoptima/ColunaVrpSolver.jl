@@ -80,22 +80,30 @@ function update_cutsep_status!(
     return nothing
 end
 
-# function to get the dual values of all rank-one cuts
-function get_rankonecut_duals(cbdata::CB) where {CB}
+# function to get the dual values of all rank-one cuts and clean-up the inactive ones
+function get_rankonecut_duals!(cbdata::CB, cleanup::Bool) where {CB}
     cutdata = Ptr{Cvoid}[]
     duals = Float64[]
-    for (_, constr) in Coluna.MathProg.getconstrs(cbdata.form.parent_formulation)
-        if typeof(constr.custom_data) == RankOneCutData
-            dualval = Coluna.MathProg.getcurincval(cbdata.form.parent_formulation, constr)
-            if abs(dualval) > 1e-7  # FIXME: make 1e-7 configurable
-                # ctrname = Coluna.MathProg.getname(cbdata.form.parent_formulation, constr)
-                # @show ctrname, dualval, constr.custom_data.data_ptr
-                push!(cutdata, constr.custom_data.data_ptr)
-                push!(duals, dualval)
+    masterform = cbdata.form.parent_formulation
+    changed_form = false
+    for (cid, constr) in Coluna.MathProg.getconstrs(masterform)
+        if Coluna.MathProg.iscuractive(masterform, cid) &&
+            Coluna.MathProg.getduty(cid) <= Coluna.MathProg.MasterUserCutConstr
+            dualval = Coluna.MathProg.getcurincval(masterform, constr)
+            if abs(dualval) > 1e-7 # FIXME: make 1e-7 configurable
+                if typeof(constr.custom_data) == RankOneCutData
+                    # ctrname = Coluna.MathProg.getname(masterform, constr)
+                    # @show ctrname, dualval, constr.custom_data.data_ptr
+                    push!(cutdata, constr.custom_data.data_ptr)
+                    push!(duals, dualval)
+                end
+            elseif cleanup
+                Coluna.MathProg.deactivate!(masterform, cid)
+                changed_form = true
             end
         end
     end
-    return cutdata, duals
+    return cutdata, duals, changed_form
 end
 
 # Define the function to perform reduced-cost fixing and enumeration via RCSP library
@@ -103,6 +111,9 @@ function run_redcostfixing_and_enumeration!(
     masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
     optstate::Coluna.Algorithm.OptimizationState
 ) where {CB}
+    # Get the rank-1 cuts and their dual values
+    r1cut_ptrs, r1cut_duals, changed_form = get_rankonecut_duals!(cbdata, true)
+
     # @info "In run_redcostfixing_and_enumeration!"
     storage = Coluna.MathProg.getstorage(masterform)
     unit = storage.units[VrpNodeInfoUnit].storage_unit
@@ -110,13 +121,12 @@ function run_redcostfixing_and_enumeration!(
         return false
     end
 
-    # Get the reduced costs and dual values
+    # Get the reduced costs
     for vid in 1:get_maxvarid(model)
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
             cbdata, model.variables_by_id[vid]
         )
     end
-    r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
     # @show rcosts
 
     # Get the primal and dual bounds and compute the current gap
@@ -182,6 +192,7 @@ function run_redcostfixing_and_enumeration!(
             end
         end
     end
+    # FIXME: if changed, solve the master again
 
     return false
 end
@@ -246,7 +257,7 @@ function solve_RCSP_pricing(
             cbdata, model.variables_by_id[vid]
         )
     end
-    r1cut_ptrs, r1cut_duals = get_rankonecut_duals(cbdata)
+    r1cut_ptrs, r1cut_duals, _ = get_rankonecut_duals!(cbdata, false)
     # @show r1cut_ptrs
     # @show r1cut_duals
     # setup_var = Coluna.MathProg.getname(cbdata.form, cbdata.form.duty_data.setup_var)
