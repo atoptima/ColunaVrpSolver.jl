@@ -26,18 +26,18 @@ end
 
 domain(cut::CapacityCut) = (
     (cut.sense == :<=) ?
-        MathOptInterface.LessThan(cut.rhs) : MathOptInterface.GreaterThan(cut.rhs)
+    MathOptInterface.LessThan(cut.rhs) : MathOptInterface.GreaterThan(cut.rhs)
 )
 
 function add_capacity_cut_separator!(
-    model::M, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{M},Int}}, Float64}},
-    capacity::Float64
+    model::M, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{M}, Int}}, Float64}},
+    capacity::Float64,
 ) where {M <: AbstractVrpModel}
     # make sure that all graphs are preprocessed
     for rcsp in model.rcsp_instances
         preprocess_graph!(rcsp.graph)
     end
-    
+
     # get only the first pair (G, i) of each packing set because they all should share the same
     # packing set id, which is the id used inside the RCSP C++ module to assign demands.
     # Note: Fixing this would require to change the VrpSolver user interface, making it less
@@ -50,7 +50,7 @@ function add_capacity_cut_separator!(
     # call the C++ function to create the capacity cut separator and add it to the model
     demands = [d for (_, d) in demandsets]
     push!(
-        model.rcc_pre_separators, RCCPreSeparator(graphs, vertids, demands, capacity)
+        model.rcc_pre_separators, RCCPreSeparator(graphs, vertids, demands, capacity),
     )
 end
 
@@ -58,19 +58,19 @@ function build_capacity_cut_separators!(model::M) where {M <: AbstractVrpModel}
     for presep in model.rcc_pre_separators
         push!(
             model.rcc_separators,
-            ccall(
-                (:addCapacityCutSeparator_c, path), Ptr{Cvoid},
+            @try_ccall(
+                (:addCapacityCutSeparator_c, rcsp_path), Ptr{Cvoid},
                 (Cint, Ref{Ptr{Cvoid}}, Ptr{Cint}, Ptr{Float64}, Float64, Ptr{Cvoid}),
                 Cint(length(presep.demands)), presep.graphs, presep.vertids, presep.demands,
                 presep.capacity,
-                get_rcsp_params(model.parameters[1], PARAM_CLASS_ROUND_CAP_CUTS_SEPARATOR)
-            )
+                get_rcsp_params(model.parameters[1], PARAM_CLASS_ROUND_CAP_CUTS_SEPARATOR),
+            ),
         )
     end
 end
 
 function run_capacity_cut_separators(
-    model::M, sol::S
+    model::M, sol::S,
 ) where {M <: AbstractVrpModel, S <: AbstractVrpSolution}
     # prepare the fractional solution data
     path_values = Float64[]
@@ -94,11 +94,11 @@ function run_capacity_cut_separators(
     for sep in model.rcc_separators
         # call the separator and get the output size
         bufsize = [Cint(0)]
-        nb_cuts = ccall(
-            (:separateCapacityCuts_c, path), Cint,
+        nb_cuts = @try_ccall(
+            (:separateCapacityCuts_c, rcsp_path), Cint,
             (Ptr{Cvoid}, Cint, Ptr{Float64}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}),
             sep, Cint(length(sol.paths)), path_values, path_graphids, path_starts, arcids,
-            bufsize
+            bufsize,
         )
 
         if nb_cuts > 0
@@ -109,26 +109,26 @@ function run_capacity_cut_separators(
             cut_graphids = Vector{Cint}(undef, bufsize[1])
             cut_varids = Vector{Cint}(undef, bufsize[1])
             cut_coeffs = Vector{Float64}(undef, bufsize[1])
-            ccall(
-                (:getCapacityCuts_c, path), Cvoid,
+            @try_ccall(
+                (:getCapacityCuts_c, rcsp_path), Cvoid,
                 (
                     Ptr{Cvoid}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint},
-                    Ptr{Float64}
+                    Ptr{Float64},
                 ),
-                sep, senses, rhss, cut_starts, cut_graphids, cut_varids, cut_coeffs
+                sep, senses, rhss, cut_starts, cut_graphids, cut_varids, cut_coeffs,
             )
 
             # convert and store the cuts
             for c in 1:nb_cuts
                 cut = CapacityCut(
-                    rhss[c], (senses[c] == 0) ? :>= : :<=, CapacityCutMember[]
+                    rhss[c], (senses[c] == 0) ? :>= : :<=, CapacityCutMember[],
                 )
                 nextcut!(model.coeffmanager, model)
-                for m in cut_starts[c]:(cut_starts[c+1] - 1)
+                for m in cut_starts[c]:(cut_starts[c+1]-1)
                     # g = cut_graphids[m + 1] + 1
-                    v = Int(cut_varids[m + 1] + 1)
+                    v = Int(cut_varids[m+1] + 1)
                     if !hascoeff(model.coeffmanager, v)
-                        push!(cut.members, CapacityCutMember(v, cut_coeffs[m + 1]))
+                        push!(cut.members, CapacityCutMember(v, cut_coeffs[m+1]))
                         regcoeff!(model.coeffmanager, v)
                     end
                 end
@@ -147,10 +147,10 @@ function build_rank_one_cut_separator!(model::M) where {M <: AbstractVrpModel}
     end
 
     # call the C++ code to build the separator
-    model.rank1cut_separator = ccall(
-        (:addRankOneCutSeparator_c, path), Ptr{Cvoid}, (Cint, Ref{Ptr{Cvoid}}, Ptr{Cvoid}),
+    model.rank1cut_separator = @try_ccall(
+        (:addRankOneCutSeparator_c, rcsp_path), Ptr{Cvoid}, (Cint, Ref{Ptr{Cvoid}}, Ptr{Cvoid}),
         Cint(length(model.rcsp_instances)), map(x -> x.graph.cptr, model.rcsp_instances),
-        get_rcsp_params(model.parameters[1], PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR)
+        get_rcsp_params(model.parameters[1], PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR),
     )
 end
 
@@ -168,7 +168,7 @@ end
 
 function get_rank1cut_rhs(cutptr::Ptr{Cvoid})
     # @show cutptr
-    return ccall((:getRankOneCutRhs_c, path), Float64, (Ptr{Cvoid},), cutptr)
+    return @try_ccall((:getRankOneCutRhs_c, rcsp_path), Float64, (Ptr{Cvoid},), cutptr)
 end
 
 function get_r1cut_bufsize(max_cuts::Int, max_rows::Int)
@@ -190,7 +190,7 @@ function get_r1cut_bufsize(max_cuts::Int, max_rows::Int)
 end
 
 function run_rank_one_cut_separator(
-    model::M, sol::S
+    model::M, sol::S,
 ) where {M <: AbstractVrpModel, S <: AbstractVrpSolution}
     # prepare the fractional solution data
     path_values = Float64[]
@@ -216,14 +216,14 @@ function run_rank_one_cut_separator(
     mem_type = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :memoryType)
     phase = [Cint(model.cutsep_phase)]
     cutbuf = Vector{Ptr{Cvoid}}(undef, get_cutbuf_size(model.cutsep_phase, bufsize))
-    nb_rank1cuts = ccall(
-        (:separateRankOneCutCuts_c, path), Cint,
+    nb_rank1cuts = @try_ccall(
+        (:separateRankOneCutCuts_c, rcsp_path), Cint,
         (
             Ptr{Cvoid}, Ptr{Cint}, Cint, Cint, Ptr{Float64}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint},
-            Ref{Ptr{Cvoid}}
+            Ref{Ptr{Cvoid}},
         ),
         model.rank1cut_separator, phase, mem_type, Cint(length(sol.paths)), path_values,
-        path_graphids, path_starts, arcids, cutbuf
+        path_graphids, path_starts, arcids, cutbuf,
     )
     # @show nb_rank1cuts
     model.cutsep_phase = phase[1]
@@ -243,19 +243,19 @@ end
 
 # function to compute rank-1 cut coefficients called by Coluna
 function Coluna.MathProg.computecoeff(
-    var_custom_data::PathVarData, constr_custom_data::RankOneCutData
+    var_custom_data::PathVarData, constr_custom_data::RankOneCutData,
 )
     return compute_coeff_from_data(var_custom_data, constr_custom_data)
 end
 Coluna.MathProg.computecoeff(::PathVarData, ::Nothing) = 0.0
 function compute_coeff_from_data(
-    var_custom_data::PathVarData, constr_custom_data::RankOneCutData
+    var_custom_data::PathVarData, constr_custom_data::RankOneCutData,
 )
     arcids = var_custom_data.arcids
-    return ccall(
-        (:getRankOneCutCoeff_c, path), Float64, (Ptr{Cvoid}, Cint, Cint, Ptr{Cint}, Ptr{Cvoid}),
+    return @try_ccall(
+        (:getRankOneCutCoeff_c, rcsp_path), Float64, (Ptr{Cvoid}, Cint, Cint, Ptr{Cint}, Ptr{Cvoid}),
         constr_custom_data.separator_ptr, Cint(var_custom_data.graphid - 1), Cint(length(arcids)),
-        arcids, constr_custom_data.data_ptr
+        arcids, constr_custom_data.data_ptr,
     )
 end
 

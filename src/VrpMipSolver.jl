@@ -1,12 +1,14 @@
 function solve_vrp_by_mip(
     masterform::Coluna.MathProg.Formulation, model::VrpModel, cbdata_vec::Vector{CB},
-    primal_bnd::Float64
+    primal_bnd::Float64,
 ) where {CB}
-    mip = Model(optimizer_with_attributes(
-        Gurobi.Optimizer,
-        "MIPGap" => model.parameters[1].coluna_vrp_params.relOptimalityGapTolerance,
-        "Cutoff" => primal_bnd
-    ))
+    mip = Model(
+        optimizer_with_attributes(
+            CPLEX.Optimizer,
+            "MIPGap" => model.parameters[1].coluna_vrp_params.relOptimalityGapTolerance,
+            "Cutoff" => primal_bnd,
+        ),
+    )
 
     # retrieve the paths and the corresponding mapped variables from all RCSP subproblems
     paths_arcs = Vector{Vector{Int}}[]
@@ -18,7 +20,7 @@ function solve_vrp_by_mip(
         for p in rcsp_paths_arcs
             p_vars = Dict{VariableRef, Int}()
             for a in p
-                for var in rcsp.graph.mappings[a + 1]
+                for var in rcsp.graph.mappings[a+1]
                     p_vars[var] = get(p_vars, var, 0) + 1
                 end
             end
@@ -54,7 +56,7 @@ function solve_vrp_by_mip(
                 # @show var_name
                 for (cid, coeff) in @view matrix[:, vid]
                     if Coluna.MathProg.iscuractive(masterform, cid) &&
-                        Coluna.MathProg.getduty(cid) <= Coluna.MathProg.AbstractMasterConstr
+                       Coluna.MathProg.getduty(cid) <= Coluna.MathProg.AbstractMasterConstr
                         # ctr_name = Coluna.MathProg.getname(masterform, cid)
                         # @show coeff, ctr_name
                         if !haskey(cid_to_coeffs, cid)
@@ -122,7 +124,7 @@ function solve_vrp_by_mip(
                     # build the subproblem solution data
                     subvarids = [
                         Coluna._get_varid_of_origvar_in_form(
-                            opt.env, cbdata_vec[i].form, JuMP.index(var)
+                            opt.env, cbdata_vec[i].form, JuMP.index(var),
                         )
                         for (var, _) in paths_vars[i][j]
                     ]
@@ -138,7 +140,7 @@ function solve_vrp_by_mip(
                     # add the subproblem solution to the subproblem
                     subsol = Coluna.MathProg.PrimalSolution(
                         cbdata_vec[i].form, subvarids, subvarcoeffs, subcost,
-                        Coluna.FEASIBLE_SOL
+                        Coluna.FEASIBLE_SOL,
                     )
                     col_id = Coluna.MathProg.insert_column!(masterform, subsol, "MC")
                     mc_var = Coluna.MathProg.getvar(masterform, col_id)
@@ -153,7 +155,7 @@ function solve_vrp_by_mip(
 
         # add the master solution to the master problem
         sol = Coluna.MathProg.PrimalSolution(
-            masterform, varids, varcoeffs, cost, Coluna.FEASIBLE_SOL
+            masterform, varids, varcoeffs, cost, Coluna.FEASIBLE_SOL,
         )
         return [sol]
     else

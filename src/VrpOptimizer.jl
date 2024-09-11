@@ -9,7 +9,7 @@ end
 
 function Coluna.Algorithm.run!(
     algo::RedCostFixAndEnumAlgorithm, ::Coluna.Env,
-    reform::Coluna.MathProg.Reformulation, input::Coluna.Algorithm.OptimizationState
+    reform::Coluna.MathProg.Reformulation, input::Coluna.Algorithm.OptimizationState,
 )
     masterform = Coluna.MathProg.getmaster(reform)
     changed = false
@@ -22,7 +22,7 @@ end
 
 function Coluna.Algorithm.run!(
     algo::SolveByMipAlgorithm, ::Coluna.Env, reform::Coluna.MathProg.Reformulation,
-    input::Coluna.Algorithm.OptimizationState
+    input::Coluna.Algorithm.OptimizationState,
 )
     # Call the solver by MIP function
     masterform = Coluna.MathProg.getmaster(reform)
@@ -43,7 +43,7 @@ function should_solve_by_mip(unit::VrpNodeInfoUnit, model::VrpModel)
 end
 
 function update_cutsep_status!(
-    unit::VrpNodeInfoUnit, model::VrpModel, dual_bnd::Float64, curr_gap::Float64
+    unit::VrpNodeInfoUnit, model::VrpModel, dual_bnd::Float64, curr_gap::Float64,
 )
     # compute the gap ratio and update the last cut-round gap
     gap_diff_ratio = (unit.last_cutrnd_gap - curr_gap) / unit.last_cutrnd_gap
@@ -65,7 +65,7 @@ function update_cutsep_status!(
         unit.tailoff_counter += 1
         if unit.tailoff_counter < counter_threshold
             println(
-                "Cut generation tailing off counter increased to $(unit.tailoff_counter)"
+                "Cut generation tailing off counter increased to $(unit.tailoff_counter)",
             )
             max_rows = get_rcsp_rank1cut_param_value(Int, model.parameters[1], :maxNumRows)
             if unit.tailoff_counter == (counter_threshold - 1) && model.cutsep_phase == 0
@@ -88,7 +88,7 @@ function get_rankonecut_duals!(cbdata::CB, cleanup::Bool) where {CB}
     changed_form = false
     for (cid, constr) in Coluna.MathProg.getconstrs(masterform)
         if Coluna.MathProg.iscuractive(masterform, cid) &&
-            Coluna.MathProg.getduty(cid) <= Coluna.MathProg.MasterUserCutConstr
+           Coluna.MathProg.getduty(cid) <= Coluna.MathProg.MasterUserCutConstr
             dualval = Coluna.MathProg.getcurincval(masterform, constr)
             if abs(dualval) > 1e-7 # FIXME: make 1e-7 configurable
                 if typeof(constr.custom_data) == RankOneCutData
@@ -109,7 +109,7 @@ end
 # Define the function to perform reduced-cost fixing and enumeration via RCSP library
 function run_redcostfixing_and_enumeration!(
     masterform::Coluna.MathProg.Formulation, cbdata::CB, model::VrpModel, rcosts::Vector{Float64},
-    optstate::Coluna.Algorithm.OptimizationState
+    optstate::Coluna.Algorithm.OptimizationState,
 ) where {CB}
     # Get the rank-1 cuts and their dual values
     r1cut_ptrs, r1cut_duals, changed_form = get_rankonecut_duals!(cbdata, true)
@@ -124,7 +124,7 @@ function run_redcostfixing_and_enumeration!(
     # Get the reduced costs
     for vid in 1:get_maxvarid(model)
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
-            cbdata, model.variables_by_id[vid]
+            cbdata, model.variables_by_id[vid],
         )
     end
     # @show rcosts
@@ -160,7 +160,7 @@ function run_redcostfixing_and_enumeration!(
     spid = BlockDecomposition.callback_spid(cbdata, model.formulation)
     rcsp = model.rcsp_instances[spid]
     unit.enumerated[spid] |= run_rcsp_rcostfix_and_enum(
-        rcsp, rcosts, r1cut_ptrs, r1cut_duals, primal_bnd - dual_bnd - convdual
+        rcsp, rcosts, r1cut_ptrs, r1cut_duals, primal_bnd - dual_bnd - convdual,
     )
     unit.last_rcost_fix_gap = curr_gap
 
@@ -170,8 +170,8 @@ function run_redcostfixing_and_enumeration!(
         colpaths = PathVarData[]
         for (vid, var) in Coluna.MathProg.getvars(masterform)
             if Coluna.MathProg.iscuractive(masterform, vid) &&
-                    Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
-                    var.custom_data.graphid == rcsp.graph.id
+               Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
+               var.custom_data.graphid == rcsp.graph.id
                 push!(colpaths, var.custom_data)
             end
         end
@@ -181,8 +181,8 @@ function run_redcostfixing_and_enumeration!(
         col = 1
         for (vid, var) in Coluna.MathProg.getvars(masterform)
             if Coluna.MathProg.iscuractive(masterform, vid) &&
-                    Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
-                    var.custom_data.graphid == rcsp.graph.id
+               Coluna.MathProg.getduty(vid) <= Coluna.MathProg.MasterCol &&
+               var.custom_data.graphid == rcsp.graph.id
                 # varname = Coluna.MathProg.getname(masterform, var)
                 if !isrelevant[col]
                     Coluna.MathProg.deactivate!(masterform, vid)
@@ -200,7 +200,7 @@ end
 # Define the function to solve the problem by MIP to be called in the node finalizer
 function run_solve_by_mip!(
     masterform::Coluna.MathProg.Formulation, model::VrpModel, cbdata_vec::Vector{CB},
-    optstate::Coluna.Algorithm.OptimizationState
+    optstate::Coluna.Algorithm.OptimizationState,
 ) where {CB}
     # Sort `cbdata_vec` by subproblem id
     sort!(cbdata_vec, by = cbd -> BlockDecomposition.callback_spid(cbd, model.formulation))
@@ -215,9 +215,9 @@ function run_solve_by_mip!(
 
         # Set the optimization state to output
         output = Coluna.Algorithm.OptimizationState(
-            masterform, 
+            masterform,
             ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(optstate),
-            termination_status = Coluna.OPTIMAL
+            termination_status = Coluna.OPTIMAL,
         )
 
         # Build the primal solution if any
@@ -241,20 +241,20 @@ function run_solve_by_mip!(
 
     # Return an unchanged optimization state
     return Coluna.Algorithm.OptimizationState(
-        masterform, 
+        masterform,
         ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(optstate),
-        termination_status = Coluna.OTHER_LIMIT
+        termination_status = Coluna.OTHER_LIMIT,
     )
 end
 
 # Define the function to perform pricing via RCSP library
 function solve_RCSP_pricing(
-    cbdata::CB, stage::Int, model::VrpModel, rcosts::Vector{Float64}
+    cbdata::CB, stage::Int, model::VrpModel, rcosts::Vector{Float64},
 ) where {CB}
     # Get the reduced costs and the non-robust cuts' duals
     for vid in 1:get_maxvarid(model)
         rcosts[vid] = BlockDecomposition.callback_reduced_cost(
-            cbdata, model.variables_by_id[vid]
+            cbdata, model.variables_by_id[vid],
         )
     end
     r1cut_ptrs, r1cut_duals, _ = get_rankonecut_duals!(cbdata, false)
@@ -290,7 +290,7 @@ function solve_RCSP_pricing(
         varcount = Dict{Int, Int}()
         rc = 0.0
         for a in p
-            for v in rcsp.graph.mappings[a + 1]
+            for v in rcsp.graph.mappings[a+1]
                 vid = model.varids_by_var[v]
                 varcount[vid] = get(varcount, vid, 0) + 1
                 rc += rcosts[vid]
@@ -301,7 +301,7 @@ function solve_RCSP_pricing(
         degrees = [length([a for a in arcs if a[2] == i]) for i in (1, 3, 5, 8, 20)]
         for i in eachindex(r1cut_ptrs)
             coeff = compute_coeff_from_data(
-                path_data, RankOneCutData(0.0, r1cut_ptrs[i], model.rank1cut_separator)
+                path_data, RankOneCutData(0.0, r1cut_ptrs[i], model.rank1cut_separator),
             )
             # if coeff != 0.0 && length(arcs) == 8 && degrees == [1, 2, 1, 2, 1] 
             #     @show coeff, r1cut_duals[i]
@@ -316,13 +316,13 @@ function solve_RCSP_pricing(
         end
         MathOptInterface.submit(
             model.formulation, BlockDecomposition.PricingSolution(cbdata),
-            rc, solvars, solvals, path_data
+            rc, solvars, solvals, path_data,
         )
     end
     # @show min_rc
     MathOptInterface.submit(
         model.formulation, BlockDecomposition.PricingDualBound(cbdata),
-        (stage == 1) ? min_rc : -Inf
+        (stage == 1) ? min_rc : -Inf,
     )
 end
 
@@ -346,12 +346,12 @@ function separate_capacity_cuts!(cbdata::CBD, sol::VrpSolution, model::VrpModel)
         # @show lhs, domain(cut)
         moi_cut = ScalarConstraint(
             sum(
-                m.coeff *  model.variables_by_id[m.varid] for m in cut.members
+                m.coeff * model.variables_by_id[m.varid] for m in cut.members
             ),
-            domain(cut)
+            domain(cut),
         )
         MathOptInterface.submit(
-            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut
+            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut,
         )
     end
     return length(cuts)
@@ -364,10 +364,10 @@ function separate_rank_one_cuts!(cbdata::CBD, sol::VrpSolution, model::VrpModel)
     # add the separated cuts
     for cut in cuts
         moi_cut = ScalarConstraint(
-            JuMP.AffExpr(0.0), MathOptInterface.LessThan(cut.rhs)
+            JuMP.AffExpr(0.0), MathOptInterface.LessThan(cut.rhs),
         )
         MathOptInterface.submit(
-            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut, cut
+            model.formulation, MathOptInterface.UserCut(cbdata), moi_cut, cut,
         )
     end
     return length(cuts)
@@ -451,7 +451,7 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
     # set the cut callback
     MathOptInterface.set(
         model.formulation, MathOptInterface.UserCutCallback(),
-        (cbdata -> separate_all_cuts!(cbdata, model))
+        (cbdata -> separate_all_cuts!(cbdata, model)),
     )
 
     # preallocate a vector to store the reduced costs
@@ -464,18 +464,18 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
             subproblems[g], lower_multiplicity = L, upper_multiplicity = U,
             solver = [
                 cbdata -> solve_RCSP_pricing(cbdata, stage, model, rcosts) for stage in 1:3
-            ]
+            ],
         )
     end
 
     # set the callback for reduced-cost fixing and enumeration, and solver by MIP
     model.redcostfix_enum_algo.func =
         (masterform, cbdata, optstate) -> run_redcostfixing_and_enumeration!(
-            masterform, cbdata, model, rcosts, optstate
+            masterform, cbdata, model, rcosts, optstate,
         )
     model.solve_by_mip_algo.func =
         (masterform, cbdata_vec, optstate) -> run_solve_by_mip!(
-            masterform, model, cbdata_vec, optstate
+            masterform, model, cbdata_vec, optstate,
         )
 
     # create a dictionary of return values for compatibility with old applications
@@ -484,7 +484,7 @@ function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
         MathOptInterface.INFEASIBLE => :Infeasible,
         MathOptInterface.ITERATION_LIMIT => :UserLimit,
         MathOptInterface.TIME_LIMIT => :UserLimit,
-        MathOptInterface.OPTIMIZE_NOT_CALLED => :NotSolved
+        MathOptInterface.OPTIMIZE_NOT_CALLED => :NotSolved,
     )
 
     # create the optimizer and return it

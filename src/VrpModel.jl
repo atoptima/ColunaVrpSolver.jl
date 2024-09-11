@@ -21,12 +21,12 @@ function regcoeff!(ccm::CutCoeffManager, v::Int)
 end
 
 Coluna.@with_kw mutable struct RedCostFixAndEnumAlgorithm <:
-    Coluna.Algorithm.AbstractOptimizationAlgorithm
+                               Coluna.Algorithm.AbstractOptimizationAlgorithm
     func::Function
 end
 
 Coluna.@with_kw mutable struct SolveByMipAlgorithm <:
-    Coluna.Algorithm.AbstractOptimizationAlgorithm
+                               Coluna.Algorithm.AbstractOptimizationAlgorithm
     func::Function
 end
 
@@ -65,26 +65,19 @@ function getvarid!(model::VrpModel, var::VariableRef)
     return varid
 end
 
-const GRB_ENV_REF = Ref{Gurobi.Env}()
-
-function __init__()
-    GRB_ENV_REF[] = Gurobi.Env()
-    return nothing
-end
-
 function VrpModel()
     # Create a Coluna model
     colgen = Coluna.Algorithm.ColumnGeneration(
         pricing_prob_solve_alg = Coluna.Algorithm.SolveIpForm(
-            user_params = Coluna.Algorithm.UserOptimize(), 
+            user_params = Coluna.Algorithm.UserOptimize(),
             moi_params = Coluna.Algorithm.MoiOptimize(
                 deactivate_artificial_vars = false,
-                enforce_integrality = false
-            )
+                enforce_integrality = false,
+            ),
         ),
         stages_pricing_solver_ids = [1, 2, 3],
         throw_column_already_inserted_warning = true,
-        smoothing_stabilization = 1.0
+        smoothing_stabilization = 1.0,
     )
     dummyfunc() = nothing
     redcostfix_enum_algo = RedCostFixAndEnumAlgorithm(func = dummyfunc)
@@ -93,21 +86,25 @@ function VrpModel()
         colgen = colgen,
         primal_heuristics = [],
         before_cutgen_user_algorithm = Coluna.Algorithm.BeforeCutGenAlgo(
-            redcostfix_enum_algo, "Reduced cost fixing and enumeration"
+            redcostfix_enum_algo, "Reduced cost fixing and enumeration",
         ),
         node_finalizer = Coluna.Algorithm.NodeFinalizer(
-            solve_by_mip_algo, 0, "Solver by MIP"
+            solve_by_mip_algo, 0, "Solver by MIP",
         ),
-        max_nb_cut_rounds = 9999
+        max_nb_cut_rounds = 9999,
     )
     branching = Coluna.Algorithm.StrongBranching()
     prodscore = Coluna.Algorithm.ProductScore()
-    push!(branching.phases, Coluna.Algorithm.BranchingPhase(
-        20, Coluna.Algorithm.RestrMasterLPConquer(), prodscore)
+    push!(
+        branching.phases,
+        Coluna.Algorithm.BranchingPhase(
+            20, Coluna.Algorithm.RestrMasterLPConquer(), prodscore),
     )
     push!(branching.phases, Coluna.Algorithm.BranchingPhase(1, colcutgen, prodscore))
-    push!(branching.rules, Coluna.Algorithm.Branching.PrioritisedBranchingRule(
-        Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0)
+    push!(
+        branching.rules,
+        Coluna.Algorithm.Branching.PrioritisedBranchingRule(
+            Coluna.Algorithm.SingleVarBranchingRule(), 1.0, 1.0),
     )
 
     coluna = optimizer_with_attributes(
@@ -116,11 +113,11 @@ function VrpModel()
             solver = Coluna.Algorithm.TreeSearchAlgorithm(
                 branchingtreefile = "BaPTree.dot",
                 conqueralg = colcutgen,
-                dividealg = branching
-            )
+                dividealg = branching,
+            ),
         ),
-        "default_optimizer"  => () -> Gurobi.Optimizer(GRB_ENV_REF[]),
-            # for the master & the subproblems
+        "default_optimizer" => () -> CPLEX.Optimizer(),
+        # for the master & the subproblems
     )
     form = BlockModel(coluna) # , direct_model = true)
 
@@ -129,7 +126,7 @@ function VrpModel()
         form, AffExpr(), RCSPProblem[],
         Vector{BlockDecomposition.Root{:VrpGraphs, Int64}}(undef, 1),
         Ptr{Cvoid}[], Ptr{Cvoid}(), 0, RCCPreSeparator[], CutCoeffManager(), VariableRef[],
-        Dict{VariableRef, Int64}(), redcostfix_enum_algo, solve_by_mip_algo, VrpParameters[]
+        Dict{VariableRef, Int64}(), redcostfix_enum_algo, solve_by_mip_algo, VrpParameters[],
     )
 end
 

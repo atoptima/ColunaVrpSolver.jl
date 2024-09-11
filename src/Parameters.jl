@@ -33,17 +33,17 @@ const PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR::Cint = 3
 const PARAM_CLASS_SOLVER::Cint = 4
 const MAX_PARAM_CLASSES::Cint = 5
 
-get_rcsp_params(params::Vector{Ptr{Cvoid}}, classid::Cint) = params[classid + 1]
+get_rcsp_params(params::Vector{Ptr{Cvoid}}, classid::Cint) = params[classid+1]
 get_rcsp_params(params::VrpParameters, classid::Cint) =
     get_rcsp_params(params.rcsp_params, classid)
 
 get_rcsp_rank1cut_param_value(type::Type, params::VrpParameters, name::Symbol) =
     get_rcsp_parameter(
-        type, get_rcsp_params(params, PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR), String(name)
+        type, get_rcsp_params(params, PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR), String(name),
     )
 
 # ====== This code has been copied from `https://rosettacode.org/`
-function striplinecomment(a::String, cchars::String="#;")
+function striplinecomment(a::String, cchars::String = "#;")
     b = strip(a)
     0 < length(cchars) || return b
     for c in cchars
@@ -60,7 +60,7 @@ is_int(val::AbstractString) = all(isnothing.(findfirst.(['.', 'e', 'E'], val)))
 
 function setparam!(
     params_class::Cint, coluna_vrp_params::ColunaVrpParams, rcsp_params::Vector{Ptr{Cvoid}},
-    param_name::String, value::T
+    param_name::String, value::T,
 ) where T
     if params_class == PARAM_CLASS_COLUNA
         p = Symbol(param_name)
@@ -84,7 +84,7 @@ end
 function VrpParameters(fname::String)
     rcsp_params = [
         create_rcsp_parameters(params_class)
-        for params_class in Cint(0):(MAX_PARAM_CLASSES - Cint(1))
+        for params_class in Cint(0):(MAX_PARAM_CLASSES-Cint(1))
     ]
     coluna_vrp_params = ColunaVrpParams()
     buf = split(striplinecomment(read(fname, String)), ('=', ' ', '\n'), keepempty = false)
@@ -102,20 +102,20 @@ function VrpParameters(fname::String)
             params_class = PARAM_CLASS_COLUNA
             param_name = String(buf[line])
         end
-        if is_bool(buf[line + 1])
+        if is_bool(buf[line+1])
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Bool, buf[line + 1])
+                parse(Bool, buf[line+1]),
             )
-        elseif is_int(buf[line + 1])
+        elseif is_int(buf[line+1])
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Int, buf[line + 1])
+                parse(Int, buf[line+1]),
             )
         else
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Float64, buf[line + 1])
+                parse(Float64, buf[line+1]),
             )
         end
     end
@@ -124,49 +124,55 @@ end
 
 function create_rcsp_parameters(class::Cint)
     # Create an instance of a parameters class
-    return ccall(
-        (:createParameters_c, path), Ptr{Cvoid}, (Cint,), class
+    return @try_ccall(
+        (:createParameters_c, rcsp_path), Ptr{Cvoid}, (Cint,), class,
     )
 end
 
 function set_rcsp_parameter(params::Ptr{Cvoid}, name::String, value::Bool)
     # Set the parameter with name `name` to the value `value` in `params`
-    return (ccall(
-        (:setBoolParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Cint),
-        params, name, value ? Cint(1) : Cint(0)
-    ) != 0)
+    return (
+        @try_ccall(
+            (:setBoolParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Cint),
+            params, name, value ? Cint(1) : Cint(0),
+        ) != 0
+    )
 end
 
 function set_rcsp_parameter(params::Ptr{Cvoid}, name::String, value::Int)
     # Set the parameter with name `name` to the value `value` in `params`
-    return (ccall(
-        (:setIntParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Cint),
-        params, name, Cint(value)
-    ) != 0)
+    return (
+        @try_ccall(
+            (:setIntParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Cint),
+            params, name, Cint(value),
+        ) != 0
+    )
 end
 
 function set_rcsp_parameter(params::Ptr{Cvoid}, name::String, value::Float64)
     # Set the parameter with name `name` to the value `value` in `params`
-    return (ccall(
-        (:setDoubleParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Float64),
-        params, name, value
-    ) != 0)
+    return (
+        @try_ccall(
+            (:setDoubleParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring, Float64),
+            params, name, value,
+        ) != 0
+    )
 end
 
 function get_rcsp_parameter(::Type{Bool}, params::Ptr{Cvoid}, name::String)
-    return (ccall(
-        (:getBoolParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    return (@try_ccall(
+        (:getBoolParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name,
     ) != 0)
 end
 
 function get_rcsp_parameter(::Type{Int}, params::Ptr{Cvoid}, name::String)
-    return Int(ccall(
-        (:getIntParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    return Int(@try_ccall(
+        (:getIntParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name,
     ))
 end
 
 function get_rcsp_parameter(::Type{Float64}, params::Ptr{Cvoid}, name::String)
-    return ccall(
-        (:getDoubleParamValue_c, path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name
+    return @try_ccall(
+        (:getDoubleParamValue_c, rcsp_path), Ptr{Cvoid}, (Ptr{Cvoid}, Cstring), params, name,
     )
 end
