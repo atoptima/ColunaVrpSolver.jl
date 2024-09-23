@@ -30,7 +30,9 @@ macro try_ccall(func_and_path, rettype, args...)
     end
 end
 
+abstract type AbstractVrpModel end
 
+include("Bapcod.jl")
 include("Parameters.jl")
 include("VrpGraph.jl")
 include("RCSPProblem.jl")

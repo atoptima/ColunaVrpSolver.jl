@@ -297,7 +297,7 @@ function solve_RCSP_pricing(
             end
         end
         path_data = PathVarData(rcsp.graph.id, p)
-        arcs = [model.rcsp_instances[1].graph.arcs[a] for a in p]
+        arcs = [model.rcsp_instances[1].graph.arcs[a+1] for a in p]
         degrees = [length([a for a in arcs if a[2] == i]) for i in (1, 3, 5, 8, 20)]
         for i in eachindex(r1cut_ptrs)
             coeff = compute_coeff_from_data(
@@ -421,6 +421,7 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
 end
 
 function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString)
+    model.cfg_fname = config_fname
     empty!(model.parameters)
     push!(model.parameters, VrpParameters(config_fname))
     print_params(model.parameters[1].coluna_vrp_params)
@@ -493,6 +494,7 @@ end
 
 function set_cutoff!(opt::VrpOptimizer, cutoffvalue::Float64)
     objectiveprimalbound!(opt.model.formulation, cutoffvalue)
+    opt.model.cutoffvalue = cutoffvalue
 end
 
 function JuMP.optimize!(opt::VrpOptimizer)
