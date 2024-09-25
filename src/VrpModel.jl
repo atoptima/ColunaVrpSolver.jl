@@ -78,7 +78,7 @@ function VrpModel()
 
     # Create a Coluna model
     if rcsp_path == ""
-        tree_search = BapcodTreeSearchWrapper(VrpModel[])
+        tree_search = BapcodTreeSearchWrapper(Coluna.Optimizer[], VrpModel[])
     else
         colgen = Coluna.Algorithm.ColumnGeneration(
             pricing_prob_solve_alg = Coluna.Algorithm.SolveIpForm(
@@ -130,6 +130,9 @@ function VrpModel()
         # for the master & the subproblems
     )
     form = BlockModel(coluna) # , direct_model = true)
+    if rcsp_path == ""
+        push!(tree_search.opt, JuMP.unsafe_backend(form))
+    end
 
     # Return the VrpSolver model containing the Coluna and RCSP models
     model = VrpModel(

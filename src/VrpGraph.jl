@@ -10,7 +10,7 @@ mutable struct VrpGraph{T}
     model::T
     arcs::Vector{Tuple{Int, Int}}
     elem_sets::Vector{Vector{Int}}
-    nb_resouces::Int
+    nb_resources::Int
     res_bounds::Vector{Vector{Tuple{Float64, Float64}}}
     res_cons::Vector{Vector{Float64}}
     dist_matrix::Vector{Vector{Float64}}
@@ -52,7 +52,7 @@ function VrpGraph(
     )
 
     # For BaPCod
-    vert_ids = fill(-1, maximum(vertices) + 1)
+    vert_ids = fill(-1, maximum(vertices_) + 1)
     src_id = 0
     snk_id = 0
     for (i, v) in enumerate(vertices_)
@@ -84,9 +84,9 @@ function add_resource!(graph::VrpGraph; main = false)
     if rcsp_path != ""
         id = Int(ccall((:addResource_c, rcsp_path), Cint, (Ptr{Cvoid}, Cint), graph.cptr, Cint(main)))
     else
-        id = graph.nb_resouces
+        id = graph.nb_resources
     end
-    graph.nb_resouces += 1
+    graph.nb_resources += 1
     for b in graph.res_bounds
         push!(b, (0.0, 0.0))
     end
@@ -101,7 +101,7 @@ function set_resource_bounds!(
         (:setResourceBounds_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64, Float64),
         graph.cptr, Cint(vid), Cint(resid), lb, ub,
     )
-    graph.res_bounds[graph.vert_ids[vertid+1]][resid+1] = (lb, ub)
+    graph.res_bounds[graph.vert_ids[vertid+1]+1][resid+1] = (lb, ub)
     return
 end
 
@@ -118,7 +118,7 @@ function add_arc!(graph::VrpGraph, tail::Int, head::Int)
         resize!(graph.arcs, id + 1)
     end
     graph.arcs[id+1] = (tail, h)
-    push!(graph.res_cons, zeros(Float64, graph.nb_resouces))    # used only for BaPCod
+    push!(graph.res_cons, zeros(Float64, graph.nb_resources))    # used only for BaPCod
     return id
 end
 
