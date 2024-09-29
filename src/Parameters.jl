@@ -68,14 +68,14 @@ function setparam!(
             if typeof(getfield(coluna_vrp_params, p)) == T
                 setfield!(coluna_vrp_params, p, value)
             else
-                @warn "Invalid $T parameter value for $param_name in file $fname"
+                @warn "Invalid $T parameter value for $param_name in config file"
             end
-        else
-            @warn "Unknown parameter $param_name in file $fname"
+        elseif bapcod_path == ""
+            @warn "Unknown parameter $param_name in config file"
         end
     else
         if !set_rcsp_parameter(get_rcsp_params(rcsp_params, params_class), param_name, value)
-            @warn "Unknown parameter $param_name in file $fname"
+            @warn "Unknown parameter $param_name in config file"
         end
     end
     return

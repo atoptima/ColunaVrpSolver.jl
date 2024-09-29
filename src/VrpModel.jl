@@ -42,7 +42,7 @@ mutable struct VrpModel <: AbstractVrpModel
     coeffmanager::CutCoeffManager
     variables_by_id::Vector{VariableRef}
     varids_by_var::Dict{VariableRef, Int}
-    spids_by_var::Dict{VariableRef, Vector{Int}}
+    spids_by_var::Dict{VariableRef, Vector{Bool}}
     redcostfix_enum_algo::RedCostFixAndEnumAlgorithm
     solve_by_mip_algo::SolveByMipAlgorithm
     parameters::Vector{VrpParameters}

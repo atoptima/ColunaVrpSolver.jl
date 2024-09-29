@@ -5,8 +5,9 @@ function run_mediumsize_instances_tests()
     Profile.init(; n = 10^6, delay = 0.005)
 
     @testset "Solving selected medium-size CVRP instance" begin
-        # result = main(["../$appfolder/data/toy.vrp", "-m", "3", "-M", "3", "-u", "274.01"])
-        # @test result ≈ 274.0
+        # result = main(["../$appfolder/data/toy.vrp", "-m", "2", "-M", "2", "-u", "265.01",
+        #     "-c", "../$appfolder/config/CVRP_0.cfg"])
+        # @test result ≈ 265.0
 
         # result = main([
         #     "../$appfolder/data/M/M-n151-k12.vrp",
@@ -20,7 +21,7 @@ function run_mediumsize_instances_tests()
             "-m", "6",
             "-M", "6",
             "-u", "949.01",
-            "-c", "../$appfolder/config/CVRP_0.cfg"
+            "-c", "../$appfolder/config/CVRP_0.cfg",
         ])
         @test result ≈ 949.0
 

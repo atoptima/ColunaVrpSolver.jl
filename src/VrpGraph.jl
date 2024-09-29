@@ -140,10 +140,19 @@ function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) 
     )
     mapped = get_mappedvarids!(graph, arcid)
     push!(mapped, var)
+    spids = get(graph.model.spids_by_var, var, zeros(Bool, graph.id))
     if haskey(graph.model.spids_by_var, var)
-        push!(graph.model.spids_by_var[var], graph.id)
+        old_length = length(spids)
+        if graph.id > old_length
+            resize!(spids, graph.id)
+        end
+        for i in (old_length+1):(graph.id-1)
+            spids[i] = false
+        end
+        spids[graph.id] = true
     else
-        graph.model.spids_by_var[var] = [graph.id]
+        spids[graph.id] = true
+        graph.model.spids_by_var[var] = spids
     end
     return
 end

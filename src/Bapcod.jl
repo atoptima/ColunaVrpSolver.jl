@@ -339,7 +339,7 @@ function Coluna.Algorithm.run!(
 )
     model = algo.model_vec[1]
     masterform = reform.master
-    print("$(Coluna.MathProg.getobjsense(masterform)) ")
+    # print("$(Coluna.MathProg.getobjsense(masterform)) ")
     first = true
     varid_to_prior = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, Float64}()
     varid_to_varref = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, VariableRef}()
@@ -367,13 +367,13 @@ function Coluna.Algorithm.run!(
             name = Coluna.MathProg.getname(masterform, var_id)
             if var.curdata.cost != 0
                 if first
-                    print("$(var.curdata.cost) * $(name)")
+                    # print("$(var.curdata.cost) * $(name)")
                     first = false
                 else
-                    print(" + $(var.curdata.cost) * $(name)")
+                    # print(" + $(var.curdata.cost) * $(name)")
                 end
             end
-            spids = get(model.spids_by_var, varid_to_varref[var_id], Int[])
+            spids = get(model.spids_by_var, varid_to_varref[var_id], Bool[])
             if isempty(spids)
                 push!(lbs, Cdouble(var.curdata.lb))
                 push!(ubs, Cdouble(var.curdata.ub))
@@ -382,8 +382,9 @@ function Coluna.Algorithm.run!(
                 push!(priors, (Symbol(name), :DW_MASTER, 0, varid_to_prior[var_id]))
                 nvars += Cint(1)
             else
-                spids = model.spids_by_var[varid_to_varref[var_id]]
-                for spid in spids
+                for (spid1, used) in enumerate(spids)
+                    !used && continue
+                    spid = spid1 - 1
                     push!(lbs, Cdouble(0.0)) # var.curdata.lb))
                     push!(ubs, Cdouble(Inf)) # var.curdata.ub))
                     push!(costs, Cdouble(var.curdata.cost))
@@ -400,9 +401,10 @@ function Coluna.Algorithm.run!(
             end
         end
     end
-    println("\n")
-    @show lbs
-    @show ubs
+    # println("\n")
+    # @show vars
+    # @show lbs
+    # @show ubs
     matrix = Coluna.MathProg.getcoefmatrix(masterform)
     nconstrs = Cint(0)
     clbs = Cdouble[]
@@ -412,29 +414,29 @@ function Coluna.Algorithm.run!(
     for (constr_id, constr) in Coluna.MathProg.getconstrs(masterform)
         if Coluna.MathProg.getduty(constr_id) <= Coluna.MathProg.AbstractMasterOriginConstr
             name = Coluna.MathProg.getname(masterform, constr_id)
-            print("$(name) ($(Coluna.MathProg.getduty(constr_id))):")
+            # print("$(name) ($(Coluna.MathProg.getduty(constr_id))):")
             first = true
             for (var_id, coeff) in @view matrix[constr_id, :]
                 varname = Coluna.MathProg.getname(masterform, var_id)
                 if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
                    Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
                     if first
-                        print(" $coeff * $varname")
+                        # print(" $coeff * $varname")
                         first = false
                     else
-                        print(" + $coeff * $varname")
+                        # print(" + $coeff * $varname")
                     end
                 end
             end
-            sense = constr.curdata.sense
-            rhs = constr.curdata.rhs
-            if sense == Coluna.MathProg.Less
-                println(" <= $rhs")
-            elseif sense == Coluna.MathProg.Greater
-                println(" >= $rhs")
-            else
-                println(" = $rhs")
-            end
+            # sense = constr.curdata.sense
+            # rhs = constr.curdata.rhs
+            # if sense == Coluna.MathProg.Less
+            #     println(" <= $rhs")
+            # elseif sense == Coluna.MathProg.Greater
+            #     println(" >= $rhs")
+            # else
+            #     println(" = $rhs")
+            # end
             if constr.curdata.sense == Coluna.MathProg.Less
                 push!(clbs, Cdouble(-Inf))
                 push!(cubs, Cdouble(constr.curdata.rhs))
@@ -471,9 +473,9 @@ function Coluna.Algorithm.run!(
         end
     end
     push!(starts, Cint(length(nonzeros)))
-    @show starts
-    @show rows_id
-    @show nonzeros
+    # @show starts
+    # @show rows_id
+    # @show nonzeros
     model_ptr = new!(model.cfg_fname, true, true, false, Cint(0), String[])
     init_model!(model_ptr, nconstrs, nvars)
     set_art_cost_value!(model_ptr, Cdouble(10000))
@@ -500,18 +502,20 @@ function Coluna.Algorithm.run!(
         for resid in 0:(graph.nb_resources-1)
             wbcr_new_resource(c_net_ptr, resid)
             for i in 1:nb_nodes
+                i_ = (i == nb_nodes) ? 1 : i
                 wbcr_set_vertex_consumption_lb(
                     c_net_ptr,
                     i - 1,
                     resid,
-                    Cdouble(graph.res_bounds[i][resid+1][1]),
+                    Cdouble(graph.res_bounds[i_][resid+1][1]),
                 )
                 wbcr_set_vertex_consumption_ub(
                     c_net_ptr,
                     i - 1,
                     resid,
-                    Cdouble(graph.res_bounds[i][resid+1][2]),
+                    Cdouble(graph.res_bounds[i_][resid+1][2]),
                 )
+                # @show (i - 1), graph.res_bounds[i_][resid+1]
             end
         end
         for es_id in eachindex(graph.elem_sets)
@@ -532,7 +536,7 @@ function Coluna.Algorithm.run!(
         end
         wbcr_set_source(c_net_ptr, graph.src_id)
         wbcr_set_sink(c_net_ptr, graph.snk_id)
-        println("Mappings:")
+        # println("Mappings and Consumptions:")
         for (id1, (tail, head)) in enumerate(graph.arcs)
             push!(
                 graph.arc_ids,
@@ -542,7 +546,7 @@ function Coluna.Algorithm.run!(
                 vid = Coluna._get_varid_of_origvar_in_form(algo.opt[1].env, masterform, JuMP.index(var))
                 colids = varid_to_colids[vid]
                 for colid in colids
-                    print(" $(Coluna.MathProg.getname(masterform, vid)) -> $(colid),")
+                    # print(" $(Coluna.MathProg.getname(masterform, vid)), $colid -> $((tail, head)),")
                     wbcr_attach_bcvar_to_arc(c_net_ptr, graph.arc_ids[id1], model_ptr, colid)
                 end
             end
@@ -553,9 +557,10 @@ function Coluna.Algorithm.run!(
                     resid,
                     Cdouble(graph.res_cons[id1][resid+1]),
                 )
+                # print(" $(graph.res_cons[id1][resid+1]),")
             end
         end
-        println("\n")
+        # println("\n")
         new_oracle!(c_net_ptr, model_ptr, :DW_SP, spid)
     end
     sol_ptr = new_sol!()
