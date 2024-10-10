@@ -202,7 +202,7 @@ function run_solve_by_mip!(
     masterform::Coluna.MathProg.Formulation, model::VrpModel, cbdata_vec::Vector{CB},
     optstate::Coluna.Algorithm.OptimizationState,
 ) where {CB}
-    # Sort `cbdata_vec` by subproblem id
+    # Sort `cbdata_vec` by subproblem id (FIXME: will not work if the user creates other subproblems)
     sort!(cbdata_vec, by = cbd -> BlockDecomposition.callback_spid(cbd, model.formulation))
 
     # Check if should solve the problem by MIP

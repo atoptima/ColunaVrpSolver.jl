@@ -326,6 +326,82 @@ function new_sol!()
     @bcsol_ccall("new", Ptr{Cvoid}, ())
 end
 
+function c_getValues(mptr::Ptr{Cvoid}, solution::Ptr{Cvoid}, vector, nbvars::Integer)
+    @bcsol_ccall("getValues", Cint, (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cdouble}, Cint),
+        mptr, solution, vector, nbvars)
+end
+
+function c_getMultiplicity(solution::Ptr{Cvoid}, mult)
+    @bcsol_ccall("getMultiplicity", Cint, (Ptr{Cvoid}, Ref{Cint}),
+        solution, mult)
+end
+
+function c_start(solution::Ptr{Cvoid}, mptr)
+    @bcsol_ccall("start", Cint, (Ptr{Cvoid}, Ptr{Cvoid}), solution, mptr)
+end
+
+function c_next(solution::Ptr{Cvoid})
+    @bcsol_ccall("next", Cint, (Ptr{Cvoid},), solution)
+end
+
+# Build the solution stored in a matrix. Each row is a column.
+function get_solution(modelptr::Ptr{Cvoid}, solptr::Ptr{Cvoid}, nbvars::Int)
+    # For each variable we create an array containing the variable value for each solution
+    sol = Tuple{Int, Array{Tuple{Int, Float64}}}[]
+    status = c_start(solptr, modelptr)
+    while status == 1
+        vector = Array{Cdouble}(undef, nbvars)
+        c_getValues(modelptr, solptr, vector, nbvars)
+        mult = Ref{Cint}(0)
+        nonzeros = [(i, vector[i]) for i in 1:nbvars if vector[i] != 0.0]
+        if !isempty(nonzeros)
+            status = c_getMultiplicity(solptr, mult)
+            push!(sol, (Int(mult[]), nonzeros))
+        end
+        status = c_next(solptr)
+    end
+    return sol
+end
+
+function convert_solution(
+    masterform::Coluna.MathProg.Formulation,
+    sol::Vector{Tuple{Int, Array{Tuple{Int, Float64}}}},
+    colid_to_varid::Vector{Coluna.MathProg.Id{Coluna.MathProg.Variable}},
+    colid_to_cost::Vector{Float64},
+    colid_to_spform::Vector{Vector{Coluna.MathProg.Formulation{Coluna.MathProg.DwSp}}},
+)
+    varids = Coluna.MathProg.VarId[]
+    varcoeffs = Float64[]
+    cost = 0.0
+    for (mult, subsol) in sol
+        spform = colid_to_spform[subsol[1][1]][1]
+
+        # build the subproblem solution data
+        subvarids = [colid_to_varid[colid] for (colid, _) in subsol]
+        subvarcoeffs = [coeff for (_, coeff) in subsol]
+        push!(subvarids, spform.duty_data.setup_var)
+        push!(subvarcoeffs, 1.0)
+        subcost = sum(coeff * colid_to_cost[colid] for (colid, coeff) in subsol)
+
+        # add the subproblem solution to the subproblem
+        subsol = Coluna.MathProg.PrimalSolution(
+            spform, subvarids, subvarcoeffs, subcost, Coluna.FEASIBLE_SOL,
+        )
+        col_id = Coluna.MathProg.insert_column!(masterform, subsol, "MC")
+        mc_var = Coluna.MathProg.getvar(masterform, col_id)
+
+        # accumulate the master solution data
+        push!(varids, Coluna.MathProg.getid(mc_var))
+        push!(varcoeffs, Float64(mult))
+        cost += Float64(mult) * subcost
+    end
+
+    # add the master solution to the master problem and return it
+    return Coluna.MathProg.PrimalSolution(
+        masterform, varids, varcoeffs, cost, Coluna.FEASIBLE_SOL,
+    )
+end
+
 struct BapcodTreeSearchWrapper{M <: AbstractVrpModel} <: Coluna.Algorithm.AbstractOptimizationAlgorithm
     opt::Vector{Coluna.Optimizer}
     model_vec::Vector{M}
@@ -337,6 +413,10 @@ function Coluna.Algorithm.run!(
     reform::Coluna.MathProg.Reformulation,
     input::Coluna.Algorithm.OptimizationState,
 )
+    # Get the subproblems sorted by id (FIXME: will not work if the user creates other subproblems)
+    sps = [form for (_, form) in Coluna.MathProg.get_dw_pricing_sps(reform)]
+    sort!(sps, by = form -> Coluna.ColunaBase.getuid(form))
+
     model = algo.model_vec[1]
     masterform = reform.master
     # print("$(Coluna.MathProg.getobjsense(masterform)) ")
@@ -354,13 +434,15 @@ function Coluna.Algorithm.run!(
             varid_to_prior[vid] = Float64(prior)
         end
     end
-    nvars = Cint(0)
+    ncols = Cint(0) # number of columns in the block-diagonal matrix of the original problem
     lbs = Cdouble[]
     ubs = Cdouble[]
     costs = Cdouble[]
     vars = Tuple{Symbol, Int, Symbol, Int}[]
     priors = Tuple{Symbol, Symbol, Int, Cdouble}[]
     varid_to_colids = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, Vector{Cint}}()
+    colid_to_varid = Coluna.MathProg.Id{Coluna.MathProg.Variable}[]
+    colid_to_spform = Vector{Coluna.MathProg.Formulation{Coluna.MathProg.DwSp}}[]
     for (var_id, var) in Coluna.MathProg.getvars(masterform)
         if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
            Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
@@ -378,9 +460,11 @@ function Coluna.Algorithm.run!(
                 push!(lbs, Cdouble(var.curdata.lb))
                 push!(ubs, Cdouble(var.curdata.ub))
                 push!(costs, Cdouble(var.curdata.cost))
-                push!(vars, (Symbol(name), Int(nvars), :DW_MASTER, 0))
+                push!(vars, (Symbol(name), Int(ncols), :DW_MASTER, 0))
                 push!(priors, (Symbol(name), :DW_MASTER, 0, varid_to_prior[var_id]))
-                nvars += Cint(1)
+                push!(colid_to_varid, var_id)
+                push!(colid_to_spform, Coluna.MathProg.Id{Coluna.MathProg.Variable}[])
+                ncols += Cint(1)
             else
                 for (spid1, used) in enumerate(spids)
                     !used && continue
@@ -389,14 +473,16 @@ function Coluna.Algorithm.run!(
                     push!(ubs, Cdouble(Inf)) # var.curdata.ub))
                     push!(costs, Cdouble(var.curdata.cost))
                     varsymbol = Symbol(name * "_$spid")
-                    push!(vars, (varsymbol, Int(nvars), :DW_SP, spid))
+                    push!(vars, (varsymbol, Int(ncols), :DW_SP, spid))
                     push!(priors, (varsymbol, :DW_SP, spid, varid_to_prior[var_id]))
                     if haskey(varid_to_colids, var_id)
-                        push!(varid_to_colids[var_id], nvars)
+                        push!(varid_to_colids[var_id], ncols)
                     else
-                        varid_to_colids[var_id] = [nvars]
+                        varid_to_colids[var_id] = [ncols]
                     end
-                    nvars += Cint(1)
+                    push!(colid_to_varid, var_id)
+                    push!(colid_to_spform, [sps[spid1]])
+                    ncols += Cint(1)
                 end
             end
         end
@@ -415,19 +501,19 @@ function Coluna.Algorithm.run!(
         if Coluna.MathProg.getduty(constr_id) <= Coluna.MathProg.AbstractMasterOriginConstr
             name = Coluna.MathProg.getname(masterform, constr_id)
             # print("$(name) ($(Coluna.MathProg.getduty(constr_id))):")
-            first = true
-            for (var_id, coeff) in @view matrix[constr_id, :]
-                varname = Coluna.MathProg.getname(masterform, var_id)
-                if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
-                   Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
-                    if first
-                        # print(" $coeff * $varname")
-                        first = false
-                    else
-                        # print(" + $coeff * $varname")
-                    end
-                end
-            end
+            # first = true
+            # for (var_id, coeff) in @view matrix[constr_id, :]
+            #     varname = Coluna.MathProg.getname(masterform, var_id)
+            #     if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
+            #        Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
+            #         if first
+            #             print(" $coeff * $varname")
+            #             first = false
+            #         else
+            #             print(" + $coeff * $varname")
+            #         end
+            #     end
+            # end
             # sense = constr.curdata.sense
             # rhs = constr.curdata.rhs
             # if sense == Coluna.MathProg.Less
@@ -477,7 +563,7 @@ function Coluna.Algorithm.run!(
     # @show rows_id
     # @show nonzeros
     model_ptr = new!(model.cfg_fname, true, true, false, Cint(0), String[])
-    init_model!(model_ptr, nconstrs, nvars)
+    init_model!(model_ptr, nconstrs, ncols)
     set_art_cost_value!(model_ptr, Cdouble(10000))
     set_obj_ub!(model_ptr, Cdouble(model.cutoffvalue))
     c_register_subproblems(model_ptr, [(spid, :DW_SP) for spid in 0:(length(model.rcsp_instances)-1)])
@@ -565,6 +651,26 @@ function Coluna.Algorithm.run!(
     end
     sol_ptr = new_sol!()
     c_optimize(model_ptr, sol_ptr)
+    sol = get_solution(model_ptr, sol_ptr, Int(ncols))
+    # println("Solution: ", sol)
 
-    return Coluna.Algorithm.OptimizationState(reform)
+    # Set the optimization state to output
+    output = Coluna.Algorithm.OptimizationState(
+        masterform,
+        ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(input),
+        termination_status = Coluna.OPTIMAL,
+    )
+
+    # Build the primal solution if any
+    if !isempty(sol)
+        Coluna.Algorithm.add_ip_primal_sol!(
+            output,
+            convert_solution(masterform, sol, colid_to_varid, costs, colid_to_spform),
+        )
+        optcost = Coluna.ColunaBase.getvalue(Coluna.Algorithm.get_ip_primal_bound(output))
+        Coluna.Algorithm.set_ip_dual_bound!(output, Coluna.MathProg.DualBound(masterform, optcost))
+    end
+
+    # Return the optimization state
+    return output
 end
