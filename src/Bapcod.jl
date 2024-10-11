@@ -275,6 +275,17 @@ function wbcr_add_vertex_to_mem_of_elementarity_set(c_net::Ptr{Cvoid}, n_id::Int
     (status != 1) && error("Cannot add vertex $n_id to memory of elementarity set $n_es.")
 end
 
+function wbcr_add_vertex_to_packing_set(c_net::Ptr{Cvoid}, n_id::Integer, ps_id::Integer)
+    status = @bcr_ccall("addVertexToPackingSet", Cint, (Ptr{Cvoid}, Cint, Cint),
+        c_net, Cint(n_id), Cint(ps_id))
+end
+
+function wbc_add_generic_lim_mem_one_cut(c_model::Ptr{Cvoid})
+    status = @bcr_ccall("addGenericLimMemOneCut", Cint, (Ptr{Cvoid},),
+        c_model)
+    (status != 1) && error("Cannot add the generic lim-mem-one-rank cut.")
+end
+
 function wbcr_set_source(c_net::Ptr{Cvoid}, n_id::Integer)
     @bcr_ccall("setSource", Cint, (Ptr{Cvoid}, Cint), c_net, Cint(n_id))
 end
@@ -579,12 +590,14 @@ function Coluna.Algorithm.run!(
     c_vars_branching_priorities(model_ptr, priors)
 
     # Build the RCSP network for each subproblem
+    net_ptrs = Ptr{Cvoid}[]
     for spid in 0:(length(model.rcsp_instances)-1)
         graph = model.rcsp_instances[spid+1].graph
         nb_nodes = maximum(graph.vert_ids) + 1
         nb_psets = length(model.packing_sets)
         nb_elemsets = length(graph.elem_sets)
         c_net_ptr = new_network!(model_ptr, spid, :DW_SP, nb_nodes, nb_psets, nb_elemsets, 0)
+        push!(net_ptrs, c_net_ptr)
         for resid in 0:(graph.nb_resources-1)
             wbcr_new_resource(c_net_ptr, resid)
             for i in 1:nb_nodes
@@ -615,7 +628,7 @@ function Coluna.Algorithm.run!(
             sort!(neighs, by = x -> dists[x])
             for (k, j) in enumerate(neighs)
                 wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es_id - 1)
-                if k == 8 # FIXME
+                if k == model.parameters[1].coluna_vrp_params.RCSPmaxNGneighbourhoodSize
                     break
                 end
             end
@@ -649,6 +662,18 @@ function Coluna.Algorithm.run!(
         # println("\n")
         new_oracle!(c_net_ptr, model_ptr, :DW_SP, spid)
     end
+
+    # Set the packing sets
+    for (ps_id1, ps) in enumerate(model.packing_sets)
+        for (spid, i) in ps
+            graph = model.rcsp_instances[spid+1].graph
+            wbcr_add_vertex_to_packing_set(net_ptrs[spid+1], graph.vert_ids[i+1], ps_id1 - 1)
+        end
+    end
+    if !isempty(model.packing_sets)
+        wbc_add_generic_lim_mem_one_cut(model_ptr)
+    end
+
     sol_ptr = new_sol!()
     c_optimize(model_ptr, sol_ptr)
     sol = get_solution(model_ptr, sol_ptr, Int(ncols))

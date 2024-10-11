@@ -9,21 +9,22 @@ function run_mediumsize_instances_tests()
         #     "-c", "../$appfolder/config/CVRP_0.cfg"])
         # @test result ≈ 265.0
 
-        # result = main([
-        #     "../$appfolder/data/M/M-n151-k12.vrp",
-        #     "-m", "12",
-        #     "-M", "12",
-        #     "-u", "1015.01",
-        #     "-c", "../$appfolder/config/CVRP.cfg"
-        # ])
         result = main([
-            "../$appfolder/data/A/A-n37-k6.vrp",
-            "-m", "6",
-            "-M", "6",
-            "-u", "949.01",
+            "../$appfolder/data/M/M-n151-k12.vrp",
+            "-m", "12",
+            "-M", "12",
+            "-u", "1015.01",
             "-c", "../$appfolder/config/CVRP_0.cfg",
         ])
-        @test result ≈ 949.0
+        @test result ≈ 1015.0
+        # result = main([
+        #     "../$appfolder/data/A/A-n37-k6.vrp",
+        #     "-m", "6",
+        #     "-M", "6",
+        #     "-u", "949.01",
+        #     "-c", "../$appfolder/config/CVRP_0.cfg",
+        # ])
+        # @test result ≈ 949.0
 
         # @profile main(["../$appfolder/data/A/A-n37-k6.vrp", "-m", "6", "-M", "6", "-u", "949.01"])
         # pprof(; webport = 58599)

@@ -8,6 +8,7 @@
     relOptimalityGapTolerance::Float64 = 1e-6
     CutTailingOffThreshold::Float64 = 0.015
     CutTailingOffCounterThreshold::Int = 3
+    RCSPmaxNGneighbourhoodSize::Int = 8
 end
 
 function print_params(params::ColunaVrpParams)
@@ -76,6 +77,9 @@ function setparam!(
     else
         if !set_rcsp_parameter(get_rcsp_params(rcsp_params, params_class), param_name, value)
             @warn "Unknown parameter $param_name in config file"
+        end
+        if T == Int && param_name == "RCSPmaxNGneighbourhoodSize"
+            coluna_vrp_params.RCSPmaxNGneighbourhoodSize = value
         end
     end
     return
