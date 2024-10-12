@@ -58,7 +58,7 @@ function set_obj_ub!(mptr::Ptr{Cvoid}, ub::Cdouble)
     @bcm_ccall("setObjUb", Cvoid, (Ptr{Cvoid}, Cdouble), mptr, ub)
 end
 
-function register_sub_problem!(mptr::Ptr{Cvoid}, subproblemtype::Cint, spmid::Array)
+function register_sub_problem!(mptr::Ptr{Cvoid}, subproblemtype::Cint, spmid::Vector{Cint})
     @bcm_ccall("registerSubProblem", Cint, (Ptr{Cvoid}, Cint, Ptr{Cint}),
         mptr, subproblemtype, spmid)
 end
@@ -121,14 +121,14 @@ function register_var!(
     name::Symbol,
     column_id::Integer,
     sp_type::Integer,
-    sp_mid::Array,
-    var_mid::Array,
+    sp_mid::Vector{Cint},
+    var_mid::Vector{Cint},
 )
     @bcm_ccall("registerVar", Cint, (Ptr{Cvoid}, Ptr{Cchar}, Cint, Cint, Ptr{Cint}, Ptr{Cint}),
         mptr, name, column_id, sp_type, sp_mid, var_mid)
 end
 
-function init_vars!(mptr::Ptr{Cvoid}, l::Array, u::Array, c::Array)
+function init_vars!(mptr::Ptr{Cvoid}, l::Vector{Cdouble}, u::Vector{Cdouble}, c::Vector{Cdouble})
     @bcm_ccall("initVars", Cvoid, (Ptr{Cvoid}, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cdouble}),
         mptr, l, u, c)
 end
@@ -147,7 +147,14 @@ function c_register_vars(mptr::Ptr{Cvoid}, l, u, c, vars_decomposition)
     init_vars!(mptr, l, u, c)
 end
 
-function init_cstrs!(mptr::Ptr{Cvoid}, starts::Array, rows_id::Array, nonzeros::Array, lb::Array, ub::Array)
+function init_cstrs!(
+    mptr::Ptr{Cvoid},
+    starts::Vector{Cint},
+    rows_id::Vector{Cint},
+    nonzeros::Vector{Cdouble},
+    lb::Vector{Cdouble},
+    ub::Vector{Cdouble},
+)
     @bcm_ccall("initCstrs", Cint, (Ptr{Cvoid}, Ptr{Cint}, Ptr{Cint}, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cdouble}),
         mptr, starts, rows_id, nonzeros, lb, ub)
 end
@@ -157,8 +164,8 @@ function register_cstr!(
     name::Symbol,
     row_id::Cint,
     sp_type::Integer,
-    sp_mid::Array,
-    cstr_mid::Array,
+    sp_mid::Vector{Cint},
+    cstr_mid::Vector{Cint},
 )
     @bcm_ccall("registerCstr", Cint, (Ptr{Cvoid}, Ptr{Cchar}, Cint, Cint, Ptr{Cint}, Ptr{Cint}),
         mptr, string(name), row_id, sp_type, sp_mid, cstr_mid)
@@ -203,7 +210,7 @@ function set_var_priority_in_master!(
     modelptr::Ptr{Cvoid},
     varname::Symbol,
     sp_bctype::Integer,
-    sp_bcid::Array,
+    sp_bcid::Vector{Cint},
     priority::Cdouble,
 )
     @bcm_ccall("setVarPriorityInMaster", Cint, (Ptr{Cvoid}, Ptr{Cchar}, Cint, Ptr{Cint}, Cdouble),
@@ -223,7 +230,7 @@ end
 function wbcr_new(
     c_model::Ptr{Cvoid},
     sp_bctype::Integer,
-    sp_bcid::Array,
+    sp_bcid::Vector{Cint},
     nb_nodes::Integer,
     nb_es::Integer,
     nb_ps::Integer,
@@ -242,7 +249,7 @@ function new_network!(
     nb_ps::Int,
     nb_cs::Int,
 )
-    sp_bcid = Array{Cint}(undef, 8)
+    sp_bcid = Array{Cint, 1}(undef, 8)
     from_index_to_BaPCodindex(sp_id, sp_bcid)
     sp_bctype = sptype_to_int(sp_type)
     return wbcr_new(c_model, sp_bctype, sp_bcid, nb_nodes, nb_es, nb_ps, nb_cs)
@@ -286,6 +293,17 @@ function wbc_add_generic_lim_mem_one_cut(c_model::Ptr{Cvoid})
     (status != 1) && error("Cannot add the generic lim-mem-one-rank cut.")
 end
 
+function wbcr_add_generic_capacity_cut(
+    c_model::Ptr{Cvoid},
+    max_cap::Cint,
+    dem::Vector{Cint},
+)
+    status = @bcr_ccall("addGenericCapacityCut", Cint,
+        (Ptr{Cvoid}, Cint, Ptr{Cint}, Cint, Cint, Cdouble, Cdouble, Cint),
+        c_model, max_cap, dem, Cint(length(dem)), Cint(1), 3.0, 1.0, Cint(-1))
+    (status != 1) && error("Cannot add the generic capacity cut generator.")
+end
+
 function wbcr_set_source(c_net::Ptr{Cvoid}, n_id::Integer)
     @bcr_ccall("setSource", Cint, (Ptr{Cvoid}, Cint), c_net, Cint(n_id))
 end
@@ -314,7 +332,7 @@ function wbcr_create_oracle(
     c_net::Ptr{Cvoid},
     c_model::Ptr{Cvoid},
     sp_type::Integer,
-    sp_id::Array,
+    sp_id::Vector{Cint},
     save_standalone::Bool,
     standalone_filename::String,
 )
@@ -358,10 +376,10 @@ end
 # Build the solution stored in a matrix. Each row is a column.
 function get_solution(modelptr::Ptr{Cvoid}, solptr::Ptr{Cvoid}, nbvars::Int)
     # For each variable we create an array containing the variable value for each solution
-    sol = Tuple{Int, Array{Tuple{Int, Float64}}}[]
+    sol = Tuple{Int, Array{Tuple{Int, Float64}, 1}}[]
     status = c_start(solptr, modelptr)
     while status == 1
-        vector = Array{Cdouble}(undef, nbvars)
+        vector = Array{Cdouble, 1}(undef, nbvars)
         c_getValues(modelptr, solptr, vector, nbvars)
         mult = Ref{Cint}(0)
         nonzeros = [(i, vector[i]) for i in 1:nbvars if vector[i] != 0.0]
@@ -376,7 +394,7 @@ end
 
 function convert_solution(
     masterform::Coluna.MathProg.Formulation,
-    sol::Vector{Tuple{Int, Array{Tuple{Int, Float64}}}},
+    sol::Vector{Tuple{Int, Array{Tuple{Int, Float64}, 1}}},
     colid_to_varid::Vector{Coluna.MathProg.Id{Coluna.MathProg.Variable}},
     colid_to_cost::Vector{Float64},
     colid_to_spform::Vector{Vector{Coluna.MathProg.Formulation{Coluna.MathProg.DwSp}}},
@@ -663,7 +681,7 @@ function Coluna.Algorithm.run!(
         new_oracle!(c_net_ptr, model_ptr, :DW_SP, spid)
     end
 
-    # Set the packing sets
+    # Set the packing sets and cuts
     for (ps_id1, ps) in enumerate(model.packing_sets)
         for (spid, i) in ps
             graph = model.rcsp_instances[spid+1].graph
@@ -672,6 +690,9 @@ function Coluna.Algorithm.run!(
     end
     if !isempty(model.packing_sets)
         wbc_add_generic_lim_mem_one_cut(model_ptr)
+    end
+    for (max_cap, demands) in model.rcc_demands
+        wbcr_add_generic_capacity_cut(model_ptr, max_cap, demands)
     end
 
     sol_ptr = new_sol!()

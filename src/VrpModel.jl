@@ -51,6 +51,8 @@ mutable struct VrpModel <: AbstractVrpModel
     cfg_fname::String
     cutoffvalue::Float64
     packing_sets::Vector{Vector{Tuple{Int, Int}}}
+    pset_to_id::Dict{Vector{Tuple{Int, Int}}, Int}
+    rcc_demands::Vector{Tuple{Cint, Vector{Cint}}}
 end
 
 get_parameter(model::VrpModel, param::Symbol) =
@@ -141,6 +143,7 @@ function VrpModel()
         Ptr{Cvoid}[], Ptr{Cvoid}(), 0, RCCPreSeparator[], CutCoeffManager(), VariableRef[],
         Dict{VariableRef, Int64}(), Dict{VariableRef, Vector{Int}}(), redcostfix_enum_algo, solve_by_mip_algo,
         VrpParameters[], Dict{String, Int}(), 0, "", Inf, Vector{Tuple{Int, Int}}[],
+        Dict{Vector{Tuple{Int, Int}}, Int}(), Tuple{Cint, Vector{Cint}}[],
     )
     push!(tree_search.model_vec, model)
     return model

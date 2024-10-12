@@ -180,13 +180,14 @@ function set_vertex_packing_sets!(
 ) where {T <: AbstractVrpModel}
     sizes = Cint.(length.(psets))
     graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
-    vertids = vcat([Cint.(getindex.(ps, 2)) for ps in psets]...)
+    vertids = vcat([map(x -> Cint(x[1].vert_ids[x[2]+1]), ps) for ps in psets]...)
     @try_ccall(
         (:setVertexPackingSets_c, rcsp_path), Cvoid,
         (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
         Cint(length(psets)), sizes, graphs, vertids,
     )
     model.packing_sets = [[(graph.id - 1, vertid) for (graph, vertid) in pset] for pset in psets]
+    empty!(model.pset_to_id)
     for pset in psets
         first = fill(true, length(model.rcsp_instances))
         for (graph, vertid) in pset
@@ -197,6 +198,9 @@ function set_vertex_packing_sets!(
                 push!(graph.elem_sets[end], vertid)
             end
         end
+    end
+    for pset in model.packing_sets
+        model.pset_to_id[pset] = length(model.pset_to_id)
     end
 end
 
