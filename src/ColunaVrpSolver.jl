@@ -1,3 +1,4 @@
+__precompile__(false)
 module ColunaVrpSolver
 using Coluna, JuMP, BlockDecomposition, CPLEX, MathOptInterface, Parameters, Printf
 
