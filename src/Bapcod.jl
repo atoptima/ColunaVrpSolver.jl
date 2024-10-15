@@ -261,6 +261,10 @@ function wbcr_new_resource(c_net::Ptr{Cvoid}, res_id::Integer)
     (status != 1) && error("Cannot create resource $res_id.")
 end
 
+function wbcr_set_as_main_resource(c_net::Ptr{Cvoid}, res_id::Integer, stepvalue::Cdouble)
+    @bcr_ccall("setAsMainResource", Cvoid, (Ptr{Cvoid}, Cint, Cdouble), c_net, Cint(res_id), stepvalue)
+end
+
 function wbcr_set_vertex_consumption_lb(c_net::Ptr{Cvoid}, n_id::Integer, res_id::Integer, lb::Cdouble)
     @bcr_ccall("setVertexConsumptionLB", Cint, (Ptr{Cvoid}, Cint, Cint, Cdouble),
         c_net, Cint(n_id), Cint(res_id), lb)
@@ -633,6 +637,9 @@ function Coluna.Algorithm.run!(
                     Cdouble(graph.res_bounds[i_][resid+1][2]),
                 )
                 # @show (i - 1), graph.res_bounds[i_][resid+1]
+            end
+            if graph.res_is_main[resid+1]
+                wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(1.0))
             end
         end
         for es_id in eachindex(graph.elem_sets)

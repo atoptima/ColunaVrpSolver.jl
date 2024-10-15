@@ -12,6 +12,7 @@ mutable struct VrpGraph{T}
     elem_sets::Vector{Vector{Int}}
     nb_resources::Int
     res_bounds::Vector{Vector{Tuple{Float64, Float64}}}
+    res_is_main::Vector{Bool}
     res_cons::Vector{Vector{Float64}}
     dist_matrix::Vector{Vector{Float64}}
     src_id::Int
@@ -69,7 +70,7 @@ function VrpGraph(
     graph = VrpGraph(
         model.nb_subproblems + 1, cptr_, vert_ids, Float64.(bounds), sink, new_sink, Vector{VariableRef}[],
         false, model, Tuple{Int, Int}[], Vector{Int}[], 0, [Tuple{Float64, Float64}[] for _ in vertices_],
-        Vector{Float64}[], Vector{Float64}[], src_id, snk_id, Cint[],
+        Bool[], Vector{Float64}[], Vector{Float64}[], src_id, snk_id, Cint[],
     )
     model.nb_subproblems += 1
 
@@ -90,6 +91,7 @@ function add_resource!(graph::VrpGraph; main = false)
     for b in graph.res_bounds
         push!(b, (0.0, 0.0))
     end
+    push!(graph.res_is_main, main)
     return id
 end
 
