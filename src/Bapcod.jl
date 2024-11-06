@@ -579,7 +579,8 @@ function Coluna.Algorithm.run!(
     for (var_id, _) in Coluna.MathProg.getvars(masterform)
         if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
            Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
-            nb_var_cols = length(get(model.spids_by_var, varid_to_varref[var_id], [0]))
+            spids = get(model.spids_by_var, varid_to_varref[var_id], Bool[])
+            nb_var_cols = count(spids)
             for _ in 1:nb_var_cols
                 push!(starts, Cint(length(nonzeros)))
                 for (constr_id, coeff) in @view matrix[:, var_id]
@@ -666,7 +667,7 @@ function Coluna.Algorithm.run!(
                 graph.arc_ids,
                 wbcr_new_arc(c_net_ptr, graph.vert_ids[tail+1], graph.vert_ids[head+1], Cdouble(0.0)),
             )
-            for var in graph.mappings[id1]
+            for var in get_mappedvarids(graph, id1)
                 vid = Coluna._get_varid_of_origvar_in_form(algo.opt[1].env, masterform, JuMP.index(var))
                 colids = varid_to_colids[vid]
                 for colid in colids
