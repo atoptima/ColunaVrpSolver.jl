@@ -420,7 +420,7 @@ function separate_all_cuts!(cbdata::CBD, model::VrpModel) where {CBD}
     #   to check whether to stop rank one cut separation by pricing time
 end
 
-function VrpOptimizer(model::VrpModel, config_fname::String, _::String = "")
+function VrpOptimizer(model::VrpModel, config_fname::String, _::AbstractString = "")
     model.cfg_fname = config_fname
     empty!(model.parameters)
     push!(model.parameters, VrpParameters(config_fname))

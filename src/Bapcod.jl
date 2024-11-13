@@ -451,6 +451,7 @@ function Coluna.Algorithm.run!(
     sort!(sps, by = form -> Coluna.ColunaBase.getuid(form))
 
     model = algo.model_vec[1]
+    # @show model.spids_by_var
     masterform = reform.master
     # print("$(Coluna.MathProg.getobjsense(masterform)) ")
     first = true
@@ -601,6 +602,8 @@ function Coluna.Algorithm.run!(
     set_art_cost_value!(model_ptr, Cdouble(10000))
     set_obj_ub!(model_ptr, Cdouble(model.cutoffvalue))
     c_register_subproblems(model_ptr, [(spid, :DW_SP) for spid in 0:(length(model.rcsp_instances)-1)])
+    # @show costs
+    # @show vars
     c_register_vars(model_ptr, lbs, ubs, costs, vars)
     c_register_cstrs(model_ptr, CMatrix(starts, rows_id, nonzeros), clbs, cubs, constrs)
     c_set_sp_multiplicities(
@@ -662,12 +665,15 @@ function Coluna.Algorithm.run!(
         wbcr_set_source(c_net_ptr, graph.src_id)
         wbcr_set_sink(c_net_ptr, graph.snk_id)
         # println("Mappings and Consumptions:")
+        # @show graph.mappings
+        # @show graph.arcs
+        # @show varid_to_colids
         for (id1, (tail, head)) in enumerate(graph.arcs)
             push!(
                 graph.arc_ids,
                 wbcr_new_arc(c_net_ptr, graph.vert_ids[tail+1], graph.vert_ids[head+1], Cdouble(0.0)),
             )
-            for var in get_mappedvarids(graph, id1)
+            for var in get_mappedvarids(graph, id1 - 1)
                 vid = Coluna._get_varid_of_origvar_in_form(algo.opt[1].env, masterform, JuMP.index(var))
                 colids = varid_to_colids[vid]
                 for colid in colids
