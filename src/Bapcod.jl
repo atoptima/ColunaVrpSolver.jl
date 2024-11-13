@@ -597,7 +597,24 @@ function Coluna.Algorithm.run!(
     # @show starts
     # @show rows_id
     # @show nonzeros
-    model_ptr = new!(model.cfg_fname, true, true, false, Cint(0), String[])
+    model_ptr = new!(
+        model.cfg_fname,
+        true,
+        true,
+        false,
+        Cint(9),
+        [
+            "",
+            "--MaxNbOfStagesInColGenProcedure",
+            "3",
+            "--colGenSubProbSolMode",
+            "3",
+            "--MipSolverMultiThread",
+            "1",
+            "--ApplyStrongBranchingEvaluation",
+            "true",
+        ],
+    )
     init_model!(model_ptr, nconstrs, ncols)
     set_art_cost_value!(model_ptr, Cdouble(10000))
     set_obj_ub!(model_ptr, Cdouble(model.cutoffvalue))
