@@ -280,6 +280,11 @@ function wbcr_attach_elementarity_set_to_node(c_net::Ptr{Cvoid}, n_id::Integer, 
         c_net, Cint(n_id), Cint(es_id))
 end
 
+function wbcr_attach_elementarity_set_to_edge(c_net::Ptr{Cvoid}, edge_id::Integer, es_id::Integer)
+    @bcr_ccall("attachElementaritySetToEdge", Cint, (Ptr{Cvoid}, Cint, Cint),
+        c_net, Cint(edge_id), Cint(es_id))
+end
+
 function wbcr_add_vertex_to_mem_of_elementarity_set(c_net::Ptr{Cvoid}, n_id::Integer, es_id::Integer)
     status = @bcr_ccall("addVertexToMemOfElementaritySet", Cint, (Ptr{Cvoid}, Cint, Cint),
         c_net, Cint(n_id), Cint(es_id))
@@ -289,6 +294,11 @@ end
 function wbcr_add_vertex_to_packing_set(c_net::Ptr{Cvoid}, n_id::Integer, ps_id::Integer)
     status = @bcr_ccall("addVertexToPackingSet", Cint, (Ptr{Cvoid}, Cint, Cint),
         c_net, Cint(n_id), Cint(ps_id))
+end
+
+function wbcr_add_edge_to_packing_set(c_net::Ptr{Cvoid}, edge_id::Integer, ps_id::Integer)
+    status = @bcr_ccall("addEdgeToPackingSet", Cint, (Ptr{Cvoid}, Cint, Cint),
+        c_net, Cint(edge_id), Cint(ps_id))
 end
 
 function wbc_add_generic_lim_mem_one_cut(c_model::Ptr{Cvoid})
@@ -663,22 +673,6 @@ function Coluna.Algorithm.run!(
                 wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(1.0))
             end
         end
-        for es_id in eachindex(graph.elem_sets)
-            elem_set = graph.elem_sets[es_id]
-            for i in elem_set
-                j = graph.vert_ids[i+1]
-                wbcr_attach_elementarity_set_to_node(c_net_ptr, j, es_id - 1)
-            end
-            dists = graph.dist_matrix[es_id]
-            neighs = [k for k in 0:(nb_nodes-1) if k != graph.src_id && k != graph.snk_id]
-            sort!(neighs, by = x -> dists[x])
-            for (k, j) in enumerate(neighs)
-                wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es_id - 1)
-                if k == model.parameters[1].coluna_vrp_params.RCSPmaxNGneighbourhoodSize
-                    break
-                end
-            end
-        end
         wbcr_set_source(c_net_ptr, graph.src_id)
         wbcr_set_sink(c_net_ptr, graph.snk_id)
         # println("Mappings and Consumptions:")
@@ -708,6 +702,31 @@ function Coluna.Algorithm.run!(
                 # print(" $(graph.res_cons[id1][resid+1]),")
             end
         end
+
+        for es_id in eachindex(graph.elem_sets)
+            elem_set = graph.elem_sets[es_id]
+            for i in elem_set
+                if model.is_vertex_psets
+                    j = graph.vert_ids[i+1]
+                    wbcr_attach_elementarity_set_to_node(c_net_ptr, j, es_id - 1)
+                else
+                    j = graph.arc_ids[i+1]
+                    wbcr_attach_elementarity_set_to_edge(c_net_ptr, j, es_id - 1)
+                end
+            end
+            if model.is_vertex_psets && !isempty(graph.dist_matrix)
+                dists = graph.dist_matrix[es_id]
+                neighs = [k for k in 0:(nb_nodes-1) if k != graph.src_id && k != graph.snk_id]
+                sort!(neighs, by = x -> dists[x])
+                for (k, j) in enumerate(neighs)
+                    wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es_id - 1)
+                    if k == model.parameters[1].coluna_vrp_params.RCSPmaxNGneighbourhoodSize
+                        break
+                    end
+                end
+            end
+        end
+
         # println("\n")
         new_oracle!(c_net_ptr, model_ptr, :DW_SP, spid)
     end
@@ -716,7 +735,11 @@ function Coluna.Algorithm.run!(
     for (ps_id1, ps) in enumerate(model.packing_sets)
         for (spid, i) in ps
             graph = model.rcsp_instances[spid+1].graph
-            wbcr_add_vertex_to_packing_set(net_ptrs[spid+1], graph.vert_ids[i+1], ps_id1 - 1)
+            if model.is_vertex_psets
+                wbcr_add_vertex_to_packing_set(net_ptrs[spid+1], graph.vert_ids[i+1], ps_id1 - 1)
+            else
+                wbcr_add_edge_to_packing_set(net_ptrs[spid+1], graph.arc_ids[i+1], ps_id1 - 1)
+            end
         end
     end
     if !isempty(model.packing_sets)

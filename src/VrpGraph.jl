@@ -177,33 +177,50 @@ function preprocess_graph!(graph::VrpGraph)
     return
 end
 
-function set_vertex_packing_sets!(
-    model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
+function set_packing_sets!(
+    is_vertex::Bool, model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
 ) where {T <: AbstractVrpModel}
-    sizes = Cint.(length.(psets))
-    graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
-    vertids = vcat([map(x -> Cint(x[1].vert_ids[x[2]+1]), ps) for ps in psets]...)
-    @try_ccall(
-        (:setVertexPackingSets_c, rcsp_path), Cvoid,
-        (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
-        Cint(length(psets)), sizes, graphs, vertids,
-    )
-    model.packing_sets = [[(graph.id - 1, vertid) for (graph, vertid) in pset] for pset in psets]
+    model.is_vertex_psets = is_vertex
+    if is_vertex
+        sizes = Cint.(length.(psets))
+        graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
+        vertids = vcat([map(x -> Cint(x[1].vert_ids[x[2]+1]), ps) for ps in psets]...)
+        @try_ccall(
+            (:setVertexPackingSets_c, rcsp_path), Cvoid,
+            (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
+            Cint(length(psets)), sizes, graphs, vertids,
+        )
+    else
+        #TODO
+    end
+    model.packing_sets = [[(graph.id - 1, elemid) for (graph, elemid) in pset] for pset in psets]
     empty!(model.pset_to_id)
     for pset in psets
         first = fill(true, length(model.rcsp_instances))
-        for (graph, vertid) in pset
+        for (graph, elemid) in pset
             if first[graph.id]
-                push!(graph.elem_sets, [vertid])
+                push!(graph.elem_sets, [elemid])
                 first[graph.id] = false
             else
-                push!(graph.elem_sets[end], vertid)
+                push!(graph.elem_sets[end], elemid)
             end
         end
     end
     for pset in model.packing_sets
         model.pset_to_id[pset] = length(model.pset_to_id)
     end
+end
+
+function set_vertex_packing_sets!(
+    model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
+) where {T <: AbstractVrpModel}
+    set_packing_sets!(true, model, psets)
+end
+
+function set_arc_packing_sets!(
+    model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
+) where {T <: AbstractVrpModel}
+    set_packing_sets!(false, model, psets)
 end
 
 function define_elementarity_sets_distance_matrix!(
