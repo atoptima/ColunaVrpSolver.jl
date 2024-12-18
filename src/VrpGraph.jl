@@ -95,6 +95,8 @@ function add_resource!(graph::VrpGraph; main = false)
     return id
 end
 
+set_resource_bounds!(graph::VrpGraph, vertid::Int, resid::Int, lb::Int, ub::Int) =
+    set_resource_bounds!(graph, vertid, resid, Float64(lb), Float64(ub))
 function set_resource_bounds!(
     graph::VrpGraph, vertid::Int, resid::Int, lb::Float64, ub::Float64,
 )

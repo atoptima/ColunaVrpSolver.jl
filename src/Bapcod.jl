@@ -670,7 +670,7 @@ function Coluna.Algorithm.run!(
                 # @show (i - 1), graph.res_bounds[i_][resid+1]
             end
             if graph.res_is_main[resid+1]
-                wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(1.0))
+                wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(0.0))
             end
         end
         wbcr_set_source(c_net_ptr, graph.src_id)
