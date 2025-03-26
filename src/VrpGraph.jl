@@ -126,6 +126,8 @@ function add_arc!(graph::VrpGraph, tail::Int, head::Int)
     return id
 end
 
+set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Int) =
+    set_arc_consumption!(graph, arcid, resid, Float64(cons))
 function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Float64)
     @try_ccall(
         (:setArcConsumption_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64),

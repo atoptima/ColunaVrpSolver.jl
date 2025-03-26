@@ -314,7 +314,7 @@ function wbcr_add_generic_capacity_cut(
 )
     status = @bcr_ccall("addGenericCapacityCut", Cint,
         (Ptr{Cvoid}, Cint, Ptr{Cint}, Cint, Cint, Cdouble, Cdouble, Cint),
-        c_model, max_cap, dem, Cint(length(dem)), Cint(1), 3.0, 1.0, Cint(-1))
+        c_model, max_cap, dem, Cint(length(dem)), Cint(0), 3.0, 1.0, Cint(-1))
     (status != 1) && error("Cannot add the generic capacity cut generator.")
 end
 
