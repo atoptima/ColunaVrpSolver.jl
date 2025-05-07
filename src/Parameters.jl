@@ -58,6 +58,8 @@ end
 is_coluna_param(name::AbstractString) = Symbol(name) in fieldnames(ColunaVrpParams)
 is_bool(val::AbstractString) = (String(val) in ["false", "true"])
 is_int(val::AbstractString) = all(isnothing.(findfirst.(['.', 'e', 'E'], val)))
+is_number(val::AbstractString) =
+    !isempty(val) && (val[1] in '0':'9' || (val[1] == '-' && length(val) > 1 && val[2] in '0':'9'))
 
 function setparam!(
     params_class::Cint, coluna_vrp_params::ColunaVrpParams, rcsp_params::Vector{Ptr{Cvoid}},
@@ -91,35 +93,39 @@ function VrpParameters(fname::String)
         for params_class in Cint(0):(MAX_PARAM_CLASSES-Cint(1))
     ]
     coluna_vrp_params = ColunaVrpParams()
-    buf = split(striplinecomment(read(fname, String)), ('=', ' ', '\n'), keepempty = false)
-    for line in 1:2:length(buf)
-        linelen = length(buf[line])
-        if linelen > 4 && buf[line][1:4] == "RCSP" && !is_coluna_param(buf[line])
-            if linelen > 15 && buf[line][5:15] == "rankOneCuts"
+    buf = [
+        split(line, ('=', ' '), keepempty = false) for
+        line in split(striplinecomment(read(fname, String)), '\n', keepempty = false)
+    ]
+    @show buf
+    for line in eachindex(buf)
+        linelen = length(buf[line][1])
+        if linelen > 4 && buf[line][1][1:4] == "RCSP" && !is_coluna_param(buf[line][1])
+            if linelen > 15 && buf[line][1][5:15] == "rankOneCuts"
                 params_class = PARAM_CLASS_LIM_MEM_RANK_ONE_CUTS_SEPARATOR
-                param_name = lowercasefirst(String(buf[line][16:end]))
+                param_name = lowercasefirst(String(buf[line][1][16:end]))
             else
                 params_class = PARAM_CLASS_SOLVER
-                param_name = String(buf[line][5:end])
+                param_name = String(buf[line][1][5:end])
             end
         else
             params_class = PARAM_CLASS_COLUNA
-            param_name = String(buf[line])
+            param_name = String(buf[line][1])
         end
-        if is_bool(buf[line+1])
+        if is_bool(buf[line][2])
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Bool, buf[line+1]),
+                parse(Bool, buf[line][2]),
             )
-        elseif is_int(buf[line+1])
+        elseif is_int(buf[line][2])
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Int, buf[line+1]),
+                parse(Int, buf[line][2]),
             )
-        else
+        elseif is_number(buf[line][2])
             setparam!(
                 params_class, coluna_vrp_params, rcsp_params, param_name,
-                parse(Float64, buf[line+1]),
+                parse(Float64, buf[line][2]),
             )
         end
     end
