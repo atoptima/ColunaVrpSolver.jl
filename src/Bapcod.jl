@@ -417,26 +417,35 @@ function convert_solution(
     varcoeffs = Float64[]
     cost = 0.0
     for (mult, subsol) in sol
-        spform = colid_to_spform[subsol[1][1]][1]
+        if isempty(colid_to_spform[subsol[1][1]])
+            # accumulate the master solution data
+            for (colid, coeff) in subsol
+                push!(varids, colid_to_varid[colid])
+                push!(varcoeffs, coeff)
+                cost += coeff * colid_to_cost[colid]
+            end
+        else
+            spform = colid_to_spform[subsol[1][1]][1]
 
-        # build the subproblem solution data
-        subvarids = [colid_to_varid[colid] for (colid, _) in subsol]
-        subvarcoeffs = [coeff for (_, coeff) in subsol]
-        push!(subvarids, spform.duty_data.setup_var)
-        push!(subvarcoeffs, 1.0)
-        subcost = sum(coeff * colid_to_cost[colid] for (colid, coeff) in subsol)
+            # build the subproblem solution data
+            subvarids = [colid_to_varid[colid] for (colid, _) in subsol]
+            subvarcoeffs = [coeff for (_, coeff) in subsol]
+            push!(subvarids, spform.duty_data.setup_var)
+            push!(subvarcoeffs, 1.0)
+            subcost = sum(coeff * colid_to_cost[colid] for (colid, coeff) in subsol)
 
-        # add the subproblem solution to the subproblem
-        subsol = Coluna.MathProg.PrimalSolution(
-            spform, subvarids, subvarcoeffs, subcost, Coluna.FEASIBLE_SOL,
-        )
-        col_id = Coluna.MathProg.insert_column!(masterform, subsol, "MC")
-        mc_var = Coluna.MathProg.getvar(masterform, col_id)
+            # add the subproblem solution to the subproblem
+            subsol = Coluna.MathProg.PrimalSolution(
+                spform, subvarids, subvarcoeffs, subcost, Coluna.FEASIBLE_SOL,
+            )
+            col_id = Coluna.MathProg.insert_column!(masterform, subsol, "MC")
+            mc_var = Coluna.MathProg.getvar(masterform, col_id)
 
-        # accumulate the master solution data
-        push!(varids, Coluna.MathProg.getid(mc_var))
-        push!(varcoeffs, Float64(mult))
-        cost += Float64(mult) * subcost
+            # accumulate the master solution data
+            push!(varids, Coluna.MathProg.getid(mc_var))
+            push!(varcoeffs, Float64(mult))
+            cost += Float64(mult) * subcost
+        end
     end
 
     # add the master solution to the master problem and return it
@@ -501,6 +510,10 @@ function Coluna.Algorithm.run!(
             end
             spids = get(model.spids_by_var, varid_to_varref[var_id], Bool[])
             if isempty(spids)
+                if var.curdata.lb == -Inf
+                    println("ERROR: pure master variable $name without lower bound is not supported.")
+                    exit(1)
+                end
                 push!(lbs, Cdouble(var.curdata.lb))
                 push!(ubs, Cdouble(var.curdata.ub))
                 push!(costs, Cdouble(var.curdata.cost))
@@ -591,7 +604,7 @@ function Coluna.Algorithm.run!(
         if Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterPureVar ||
            Coluna.MathProg.getduty(var_id) <= Coluna.MathProg.MasterRepPricingVar
             spids = get(model.spids_by_var, varid_to_varref[var_id], Bool[])
-            nb_var_cols = count(spids)
+            nb_var_cols = max(1, count(spids)) # count(spids) is zero for pure master variables
             for _ in 1:nb_var_cols
                 push!(starts, Cint(length(nonzeros)))
                 for (constr_id, coeff) in @view matrix[:, var_id]
