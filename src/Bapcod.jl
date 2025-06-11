@@ -714,14 +714,21 @@ function Coluna.Algorithm.run!(
                     wbcr_attach_elementarity_set_to_edge(c_net_ptr, j, es_id - 1)
                 end
             end
-            if model.is_vertex_psets && !isempty(graph.dist_matrix)
-                dists = graph.dist_matrix[es_id]
-                neighs = [k for k in 0:(nb_nodes-1) if k != graph.src_id && k != graph.snk_id]
+        end
+        if model.is_vertex_psets && !isempty(graph.dist_matrix)
+            for es1_id in eachindex(graph.elem_sets)
+                dists = graph.dist_matrix[es1_id]
+                neighs = [k for k in eachindex(graph.elem_sets)]
                 sort!(neighs, by = x -> dists[x])
-                for (k, j) in enumerate(neighs)
-                    wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es_id - 1)
-                    if k == model.parameters[1].coluna_vrp_params.RCSPmaxNGneighbourhoodSize
-                        break
+                for i in graph.elem_sets[es1_id]
+                    j = graph.vert_ids[i+1]
+                    k = 0
+                    for es2_id in neighs
+                        if k >= model.parameters[1].coluna_vrp_params.RCSPinitNGneighbourhoodSize
+                            break
+                        end
+                        wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es2_id - 1)
+                        k += 1
                     end
                 end
             end
