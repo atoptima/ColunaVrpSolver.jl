@@ -137,6 +137,13 @@ function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Flo
     return
 end
 
+function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::Vector{VariableRef}) where {T}
+    for v in var
+        add_arc_var_mapping!(graph, arcid, v)
+    end
+    return
+end
+
 function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) where {T}
     varid = getvarid!(graph.model, var)
     cost = coefficient(graph.model.form_obj, var)
