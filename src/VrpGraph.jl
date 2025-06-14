@@ -2,19 +2,23 @@ mutable struct VrpGraph{T}
     id::Int
     cptr::Ptr{Cvoid}
     vert_ids::Vector{Int}
-    bounds::Tuple{Float64, Float64}
+    bounds::Tuple{Float64,Float64}
     orig_sink::Int
     new_sink::Int
     mappings::Vector{Vector{VariableRef}}
     is_preproc::Bool
     model::T
-    arcs::Vector{Tuple{Int, Int}}
+    arcs::Vector{Tuple{Int,Int}}
     elem_sets::Vector{Vector{Int}}
     nb_resources::Int
-    res_bounds::Vector{Vector{Tuple{Float64, Float64}}}
+    res_bounds::Vector{Vector{Tuple{Float64,Float64}}}
     res_is_main::Vector{Bool}
+    res_is_binary::Vector{Bool}
+    res_is_disposable::Vector{Bool}
+    resid_to_binresid::Vector{Int}
     res_cons::Vector{Vector{Float64}}
     dist_matrix::Vector{Vector{Float64}}
+    ng_sets::Vector{Vector{Int}}    # ng_sets[vertex_id] contains the elementarity sets for vertex_id
     src_id::Int
     snk_id::Int
     arc_ids::Vector{Cint}
@@ -38,7 +42,7 @@ function get_mappedvarids!(g::VrpGraph, arcid::Int)
 end
 
 function VrpGraph(
-    model::T, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int, Int},
+    model::T, vertices::Vector{Int}, source::Int, sink::Int, bounds::Tuple{Int,Int},
 ) where T
     # For RCSP
     new_sink = sink
@@ -69,8 +73,9 @@ function VrpGraph(
     # Create the graph object
     graph = VrpGraph(
         model.nb_subproblems + 1, cptr_, vert_ids, Float64.(bounds), sink, new_sink, Vector{VariableRef}[],
-        false, model, Tuple{Int, Int}[], Vector{Int}[], 0, [Tuple{Float64, Float64}[] for _ in vertices_],
-        Bool[], Vector{Float64}[], Vector{Float64}[], src_id, snk_id, Cint[],
+        false, model, Tuple{Int,Int}[], Vector{Int}[], 0, [Tuple{Float64,Float64}[] for _ in vertices_],
+        Bool[], Bool[], Bool[], Int[], Vector{Float64}[], Vector{Float64}[], [Int[] for _ in eachindex(vert_ids)],
+        src_id, snk_id, Cint[],
     )
     model.nb_subproblems += 1
 
@@ -81,7 +86,10 @@ function VrpGraph(
     return graph
 end
 
-function add_resource!(graph::VrpGraph; main = false)
+function add_resource!(graph::VrpGraph; main=false, binary=false, disposable=true)
+    if binary && disposable
+        @error "Disposable binary resources are not supported"
+    end
     if rcsp_path != ""
         id = Int(ccall((:addResource_c, rcsp_path), Cint, (Ptr{Cvoid}, Cint), graph.cptr, Cint(main)))
     else
@@ -92,6 +100,9 @@ function add_resource!(graph::VrpGraph; main = false)
         push!(b, (0.0, 0.0))
     end
     push!(graph.res_is_main, main)
+    push!(graph.res_is_binary, binary)
+    push!(graph.res_is_disposable, disposable)
+    push!(graph.resid_to_binresid, ifelse(binary, count(graph.res_is_binary), -1))
     return id
 end
 
@@ -170,7 +181,7 @@ function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) 
     return
 end
 
-function add_graph!(model::T, graph::VrpGraph) where {T <: AbstractVrpModel}
+function add_graph!(model::T, graph::VrpGraph) where {T<:AbstractVrpModel}
     if graph.id != length(model.rcsp_instances) + 1
         @error "Graphs should be added in order"
     end
@@ -189,8 +200,8 @@ function preprocess_graph!(graph::VrpGraph)
 end
 
 function set_packing_sets!(
-    is_vertex::Bool, model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
-) where {T <: AbstractVrpModel}
+    is_vertex::Bool, model::T, psets::Vector{Vector{Tuple{VrpGraph{T},Int}}},
+) where {T<:AbstractVrpModel}
     model.is_vertex_psets = is_vertex
     if is_vertex
         sizes = Cint.(length.(psets))
@@ -223,20 +234,20 @@ function set_packing_sets!(
 end
 
 function set_vertex_packing_sets!(
-    model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
-) where {T <: AbstractVrpModel}
+    model::T, psets::Vector{Vector{Tuple{VrpGraph{T},Int}}},
+) where {T<:AbstractVrpModel}
     set_packing_sets!(true, model, psets)
 end
 
 function set_arc_packing_sets!(
-    model::T, psets::Vector{Vector{Tuple{VrpGraph{T}, Int}}},
-) where {T <: AbstractVrpModel}
+    model::T, psets::Vector{Vector{Tuple{VrpGraph{T},Int}}},
+) where {T<:AbstractVrpModel}
     set_packing_sets!(false, model, psets)
 end
 
 function define_elementarity_sets_distance_matrix!(
     ::T, graph::VrpGraph, distmatrix::Vector{Vector{Float64}},
-) where {T <: AbstractVrpModel}
+) where {T<:AbstractVrpModel}
     # check if the vector of vectors distmatrix is a square matrix
     lengths = length.(distmatrix)
     nb_psets = length(lengths)
@@ -251,4 +262,19 @@ function define_elementarity_sets_distance_matrix!(
         graph.cptr, nb_psets, dists,
     )
     graph.dist_matrix = distmatrix
+end
+
+function add_elem_set_to_vertex_init_ng_neighbourhood!(
+    ::T, graph::VrpGraph, vertex_id::Int, es_id::Int
+) where {T<:AbstractVrpModel}
+    if vertex_id < 0 || vertex_id >= length(graph.vert_ids) || graph.vert_ids[vertex_id+1] == -1
+        @error "Unknown vertex $vertex_id"
+    end
+    if es_id <= 0 || es_id > length(graph.elem_sets)
+        @error "Unknown elementarity set $es_id"
+    end
+    if !(es_id in graph.ng_sets[vertex_id+1])
+        push!(graph.ng_sets[vertex_id+1], es_id)
+    end
+    return
 end

@@ -39,7 +39,7 @@ function new!(
     int_obj::Bool,
     int_valued_bound::Bool,
     argc::Cint,
-    argv::Array{String, 1},
+    argv::Array{String,1},
 )
     @bcm_ccall("new", Ptr{Cvoid}, (Ptr{UInt8}, UInt8, UInt8, UInt8, Cint, Ptr{Ptr{UInt8}}),
         param_file, print_param, int_obj, int_valued_bound, argc, argv)
@@ -109,7 +109,7 @@ from_index_to_BaPCodindex(id, array_mid::Vector{Cint}) = createMultiIndex(array_
 
 function c_register_subproblems(mptr::Ptr{Cvoid}, spids)
     for (spid, sptype) in spids
-        spmid = Array{Cint, 1}(undef, 8)
+        spmid = Array{Cint,1}(undef, 8)
         from_index_to_BaPCodindex(spid, spmid)
         subproblemtype = Cint(sptype_to_int(sptype))
         register_sub_problem!(mptr, subproblemtype, spmid)
@@ -134,8 +134,8 @@ function init_vars!(mptr::Ptr{Cvoid}, l::Vector{Cdouble}, u::Vector{Cdouble}, c:
 end
 
 function c_register_vars(mptr::Ptr{Cvoid}, l, u, c, vars_decomposition)
-    var_bcid = Array{Cint, 1}(undef, 8)
-    sp_bcid = Array{Cint, 1}(undef, 8)
+    var_bcid = Array{Cint,1}(undef, 8)
+    sp_bcid = Array{Cint,1}(undef, 8)
 
     for (column_id, (name, v_id, sp_type, sp_id)) in enumerate(vars_decomposition)
         # BaPCod needs an index
@@ -172,14 +172,14 @@ function register_cstr!(
 end
 
 struct CMatrix
-    starts::Array{Cint, 1}
-    rows_id::Array{Cint, 1}
-    nonzeros::Array{Cdouble, 1}
+    starts::Array{Cint,1}
+    rows_id::Array{Cint,1}
+    nonzeros::Array{Cdouble,1}
 end
 
 function c_register_cstrs(mptr::Ptr{Cvoid}, A, lb, ub, cstrs_decomposition)
-    cstr_bcid = Array{Cint, 1}(undef, 8)
-    sp_bcid = Array{Cint, 1}(undef, 8)
+    cstr_bcid = Array{Cint,1}(undef, 8)
+    sp_bcid = Array{Cint,1}(undef, 8)
 
     for (row_id, (name, c_id, sp_type, sp_id)) in enumerate(cstrs_decomposition)
         # BaPCod needs an idnex
@@ -197,7 +197,7 @@ function sub_problem_mult!(mptr::Ptr{Cvoid}, mult_lb::Cint, mult_ub::Cint, sp_ty
 end
 
 function c_set_sp_multiplicities(mptr::Ptr{Cvoid}, sp_mult)
-    sp_bcid = Array{Cint, 1}(undef, 8)
+    sp_bcid = Array{Cint,1}(undef, 8)
     for (sp_id, sp_type, mult_lb, mult_ub) in sp_mult
         from_index_to_BaPCodindex(sp_id, sp_bcid)
         status = sub_problem_mult!(mptr, Cint(mult_lb), Cint(mult_ub), sptype_to_int(sp_type), sp_bcid)
@@ -217,8 +217,8 @@ function set_var_priority_in_master!(
         modelptr, varname, sp_bctype, sp_bcid, priority)
 end
 
-function c_vars_branching_priorities(modelptr::Ptr{Cvoid}, p::Vector{Tuple{Symbol, Symbol, Int, Cdouble}})
-    sp_bcid = Array{Cint, 1}(undef, 8)
+function c_vars_branching_priorities(modelptr::Ptr{Cvoid}, p::Vector{Tuple{Symbol,Symbol,Int,Cdouble}})
+    sp_bcid = Array{Cint,1}(undef, 8)
     for (varname, sp_type, sp_id, priority) in p
         from_index_to_BaPCodindex(sp_id, sp_bcid)
         sp_bctype = sptype_to_int(sp_type)
@@ -249,7 +249,7 @@ function new_network!(
     nb_ps::Int,
     nb_cs::Int,
 )
-    sp_bcid = Array{Cint, 1}(undef, 8)
+    sp_bcid = Array{Cint,1}(undef, 8)
     from_index_to_BaPCodindex(sp_id, sp_bcid)
     sp_bctype = sptype_to_int(sp_type)
     return wbcr_new(c_model, sp_bctype, sp_bcid, nb_nodes, nb_es, nb_ps, nb_cs)
@@ -342,6 +342,36 @@ function wbcr_set_edge_consumption_value(c_net::Ptr{Cvoid}, edge_id::Integer, re
         c_net, Cint(edge_id), Cint(res_id), value)
 end
 
+function wbcr_set_as_nondisposable_resource(c_net::Ptr{Cvoid}, res_id::Integer)
+    @bcr_ccall("setAsNonDisposableResource", Cvoid, (Ptr{Cvoid}, Cint),
+        c_net, Cint(res_id))
+end
+
+function wbcr_set_special_as_nondisposable_resource(c_net::Ptr{Cvoid}, res_id::Integer)
+    @bcr_ccall("setSpecialResourceAsNonDisposable", Cvoid, (Ptr{Cvoid}, Cint),
+        c_net, Cint(res_id))
+end
+
+function wbcr_set_vertex_special_consumption_lb(c_net::Ptr{Cvoid}, n_id::Integer, res_id::Integer, lb::Cdouble)
+    @bcr_ccall("setVertexSpecialConsumptionLB", Cint, (Ptr{Cvoid}, Cint, Cint, Cdouble),
+        c_net, Cint(n_id), Cint(res_id), lb)
+end
+
+function wbcr_set_vertex_special_consumption_ub(c_net::Ptr{Cvoid}, n_id::Integer, res_id::Integer, ub::Cdouble)
+    @bcr_ccall("setVertexSpecialConsumptionUB", Cint, (Ptr{Cvoid}, Cint, Cint, Cdouble),
+        c_net, Cint(n_id), Cint(res_id), ub)
+end
+
+function wbcr_set_edge_special_consumption_value(
+    c_net::Ptr{Cvoid},
+    edge_id::Integer,
+    res_id::Integer,
+    value::Cdouble,
+)
+    @bcr_ccall("setEdgeSpecialConsumptionValue", Cint, (Ptr{Cvoid}, Cint, Cint, Cdouble),
+        c_net, Cint(edge_id), Cint(res_id), value)
+end
+
 function wbcr_create_oracle(
     c_net::Ptr{Cvoid},
     c_model::Ptr{Cvoid},
@@ -355,7 +385,7 @@ function wbcr_create_oracle(
 end
 
 function new_oracle!(c_net::Ptr{Cvoid}, c_model::Ptr{Cvoid}, sp_type::Symbol, sp_id::Int)
-    sp_bcid = Array{Cint, 1}(undef, 8)
+    sp_bcid = Array{Cint,1}(undef, 8)
     from_index_to_BaPCodindex(sp_id, sp_bcid)
     sp_bctype = sptype_to_int(sp_type)
     wbcr_create_oracle(c_net, c_model, sp_bctype, sp_bcid, false, "")
@@ -390,10 +420,10 @@ end
 # Build the solution stored in a matrix. Each row is a column.
 function get_solution(modelptr::Ptr{Cvoid}, solptr::Ptr{Cvoid}, nbvars::Int)
     # For each variable we create an array containing the variable value for each solution
-    sol = Tuple{Int, Array{Tuple{Int, Float64}, 1}}[]
+    sol = Tuple{Int,Array{Tuple{Int,Float64},1}}[]
     status = c_start(solptr, modelptr)
     while status == 1
-        vector = Array{Cdouble, 1}(undef, nbvars)
+        vector = Array{Cdouble,1}(undef, nbvars)
         c_getValues(modelptr, solptr, vector, nbvars)
         mult = Ref{Cint}(0)
         nonzeros = [(i, vector[i]) for i in 1:nbvars if vector[i] != 0.0]
@@ -408,7 +438,7 @@ end
 
 function convert_solution(
     masterform::Coluna.MathProg.Formulation,
-    sol::Vector{Tuple{Int, Array{Tuple{Int, Float64}, 1}}},
+    sol::Vector{Tuple{Int,Array{Tuple{Int,Float64},1}}},
     colid_to_varid::Vector{Coluna.MathProg.Id{Coluna.MathProg.Variable}},
     colid_to_cost::Vector{Float64},
     colid_to_spform::Vector{Vector{Coluna.MathProg.Formulation{Coluna.MathProg.DwSp}}},
@@ -454,7 +484,7 @@ function convert_solution(
     )
 end
 
-struct BapcodTreeSearchWrapper{M <: AbstractVrpModel} <: Coluna.Algorithm.AbstractOptimizationAlgorithm
+struct BapcodTreeSearchWrapper{M<:AbstractVrpModel} <: Coluna.Algorithm.AbstractOptimizationAlgorithm
     opt::Vector{Coluna.Optimizer}
     model_vec::Vector{M}
 end
@@ -467,15 +497,15 @@ function Coluna.Algorithm.run!(
 )
     # Get the subproblems sorted by id (FIXME: will not work if the user creates other subproblems)
     sps = [form for (_, form) in Coluna.MathProg.get_dw_pricing_sps(reform)]
-    sort!(sps, by = form -> Coluna.ColunaBase.getuid(form))
+    sort!(sps, by=form -> Coluna.ColunaBase.getuid(form))
 
     model = algo.model_vec[1]
     # @show model.spids_by_var
     masterform = reform.master
     # print("$(Coluna.MathProg.getobjsense(masterform)) ")
     first = true
-    varid_to_prior = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, Float64}()
-    varid_to_varref = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, VariableRef}()
+    varid_to_prior = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable},Float64}()
+    varid_to_varref = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable},VariableRef}()
     for varref in JuMP.all_variables(model.formulation)
         vid = Coluna._get_varid_of_origvar_in_form(algo.opt[1].env, masterform, JuMP.index(varref))
         varid_to_prior[vid] = 0.0
@@ -491,9 +521,9 @@ function Coluna.Algorithm.run!(
     lbs = Cdouble[]
     ubs = Cdouble[]
     costs = Cdouble[]
-    vars = Tuple{Symbol, Int, Symbol, Int}[]
-    priors = Tuple{Symbol, Symbol, Int, Cdouble}[]
-    varid_to_colids = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable}, Vector{Cint}}()
+    vars = Tuple{Symbol,Int,Symbol,Int}[]
+    priors = Tuple{Symbol,Symbol,Int,Cdouble}[]
+    varid_to_colids = Dict{Coluna.MathProg.Id{Coluna.MathProg.Variable},Vector{Cint}}()
     colid_to_varid = Coluna.MathProg.Id{Coluna.MathProg.Variable}[]
     colid_to_spform = Vector{Coluna.MathProg.Formulation{Coluna.MathProg.DwSp}}[]
     for (var_id, var) in Coluna.MathProg.getvars(masterform)
@@ -552,8 +582,8 @@ function Coluna.Algorithm.run!(
     nconstrs = Cint(0)
     clbs = Cdouble[]
     cubs = Cdouble[]
-    constrs = Tuple{Symbol, Int, Symbol, Int}[]
-    constr_id_to_row_id = Dict{Coluna.MathProg.Id{Coluna.MathProg.Constraint}, Cint}()
+    constrs = Tuple{Symbol,Int,Symbol,Int}[]
+    constr_id_to_row_id = Dict{Coluna.MathProg.Id{Coluna.MathProg.Constraint},Cint}()
     for (constr_id, constr) in Coluna.MathProg.getconstrs(masterform)
         if Coluna.MathProg.getduty(constr_id) <= Coluna.MathProg.AbstractMasterOriginConstr
             name = Coluna.MathProg.getname(masterform, constr_id)
@@ -665,25 +695,47 @@ function Coluna.Algorithm.run!(
         c_net_ptr = new_network!(model_ptr, spid, :DW_SP, nb_nodes, nb_psets, nb_elemsets, 0)
         push!(net_ptrs, c_net_ptr)
         for resid in 0:(graph.nb_resources-1)
-            wbcr_new_resource(c_net_ptr, resid)
+            if graph.res_is_binary[resid+1]
+                wbcr_set_special_as_nondisposable_resource(c_net_ptr, graph.resid_to_binresid[resid+1] - 1)
+            else
+                wbcr_new_resource(c_net_ptr, resid)
+                if graph.res_is_main[resid+1]
+                    wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(0.0))
+                end
+                if !graph.res_is_disposable[resid+1]
+                    wbcr_set_as_nondisposable_resource(c_net_ptr, resid)
+                end
+            end
             for i in 1:nb_nodes
                 i_ = (i == nb_nodes) ? 1 : i
-                wbcr_set_vertex_consumption_lb(
-                    c_net_ptr,
-                    i - 1,
-                    resid,
-                    Cdouble(graph.res_bounds[i_][resid+1][1]),
-                )
-                wbcr_set_vertex_consumption_ub(
-                    c_net_ptr,
-                    i - 1,
-                    resid,
-                    Cdouble(graph.res_bounds[i_][resid+1][2]),
-                )
+                if graph.res_is_binary[resid+1]
+                    wbcr_set_vertex_special_consumption_lb(
+                        c_net_ptr,
+                        i - 1,
+                        graph.resid_to_binresid[resid+1] - 1,
+                        Cdouble(graph.res_bounds[i_][resid+1][1]),
+                    )
+                    wbcr_set_vertex_special_consumption_ub(
+                        c_net_ptr,
+                        i - 1,
+                        graph.resid_to_binresid[resid+1] - 1,
+                        Cdouble(graph.res_bounds[i_][resid+1][2]),
+                    )
+                else
+                    wbcr_set_vertex_consumption_lb(
+                        c_net_ptr,
+                        i - 1,
+                        resid,
+                        Cdouble(graph.res_bounds[i_][resid+1][1]),
+                    )
+                    wbcr_set_vertex_consumption_ub(
+                        c_net_ptr,
+                        i - 1,
+                        resid,
+                        Cdouble(graph.res_bounds[i_][resid+1][2]),
+                    )
+                end
                 # @show (i - 1), graph.res_bounds[i_][resid+1]
-            end
-            if graph.res_is_main[resid+1]
-                wbcr_set_as_main_resource(c_net_ptr, resid, Cdouble(0.0))
             end
         end
         wbcr_set_source(c_net_ptr, graph.src_id)
@@ -706,12 +758,21 @@ function Coluna.Algorithm.run!(
                 end
             end
             for resid in 0:(graph.nb_resources-1)
-                wbcr_set_edge_consumption_value(
-                    c_net_ptr,
-                    graph.arc_ids[id1],
-                    resid,
-                    Cdouble(graph.res_cons[id1][resid+1]),
-                )
+                if graph.res_is_binary[resid+1]
+                    wbcr_set_edge_special_consumption_value(
+                        c_net_ptr,
+                        graph.arc_ids[id1],
+                        graph.resid_to_binresid[resid+1] - 1,
+                        Cdouble(graph.res_cons[id1][resid+1]),
+                    )
+                else
+                    wbcr_set_edge_consumption_value(
+                        c_net_ptr,
+                        graph.arc_ids[id1],
+                        resid,
+                        Cdouble(graph.res_cons[id1][resid+1]),
+                    )
+                end
                 # print(" $(graph.res_cons[id1][resid+1]),")
             end
         end
@@ -728,20 +789,30 @@ function Coluna.Algorithm.run!(
                 end
             end
         end
-        if model.is_vertex_psets && !isempty(graph.dist_matrix)
-            for es1_id in eachindex(graph.elem_sets)
-                dists = graph.dist_matrix[es1_id]
-                neighs = [k for k in eachindex(graph.elem_sets)]
-                sort!(neighs, by = x -> dists[x])
-                for i in graph.elem_sets[es1_id]
-                    j = graph.vert_ids[i+1]
-                    k = 0
-                    for es2_id in neighs
-                        if k >= model.parameters[1].coluna_vrp_params.RCSPinitNGneighbourhoodSize
-                            break
+        if model.is_vertex_psets
+            if !isempty(graph.dist_matrix)
+                for es1_id in eachindex(graph.elem_sets)
+                    dists = graph.dist_matrix[es1_id]
+                    neighs = [k for k in eachindex(graph.elem_sets)]
+                    sort!(neighs, by=x -> dists[x])
+                    for i in graph.elem_sets[es1_id]
+                        j = graph.vert_ids[i+1]
+                        k = 0
+                        for es2_id in neighs
+                            if k >= model.parameters[1].coluna_vrp_params.RCSPinitNGneighbourhoodSize
+                                break
+                            end
+                            wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es2_id - 1)
+                            k += 1
                         end
-                        wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es2_id - 1)
-                        k += 1
+                    end
+                end
+            end
+            if !all(isempty.(graph.ng_sets))
+                for vertex_id1 in eachindex(graph.vert_ids)
+                    for es_id in graph.ng_sets[vertex_id1]
+                        j = graph.vert_ids[vertex_id1]
+                        wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es_id - 1)
                     end
                 end
             end
@@ -777,8 +848,8 @@ function Coluna.Algorithm.run!(
     # Set the optimization state to output
     output = Coluna.Algorithm.OptimizationState(
         masterform,
-        ip_primal_bound = Coluna.Algorithm.get_ip_primal_bound(input),
-        termination_status = Coluna.OPTIMAL,
+        ip_primal_bound=Coluna.Algorithm.get_ip_primal_bound(input),
+        termination_status=Coluna.OPTIMAL,
     )
 
     # Build the primal solution if any
