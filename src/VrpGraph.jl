@@ -1,6 +1,5 @@
 mutable struct VrpGraph{T}
     id::Int
-    cptr::Ptr{Cvoid}
     vert_ids::Vector{Int}
     bounds::Tuple{Float64,Float64}
     orig_sink::Int
@@ -22,6 +21,10 @@ mutable struct VrpGraph{T}
     src_id::Int
     snk_id::Int
     arc_ids::Vector{Cint}
+end
+
+mutable struct RCSPProblem
+    graph::VrpGraph
 end
 
 function get_mappedvarids(g::VrpGraph, arcid::Int)
@@ -51,10 +54,6 @@ function VrpGraph(
         new_sink = maximum(vertices) + 1
         push!(vertices_, new_sink)
     end
-    cptr_ = @try_ccall(
-        (:createGraph_c, rcsp_path), Ptr{Cvoid}, (Cint, Ptr{Cint}, Cint, Cint),
-        Cint(length(vertices_)), [Cint(v) for v in vertices_], Cint(source), Cint(new_sink),
-    )
 
     # For BaPCod
     vert_ids = fill(-1, maximum(vertices_) + 1)
@@ -72,7 +71,7 @@ function VrpGraph(
 
     # Create the graph object
     graph = VrpGraph(
-        model.nb_subproblems + 1, cptr_, vert_ids, Float64.(bounds), sink, new_sink, Vector{VariableRef}[],
+        model.nb_subproblems + 1, vert_ids, Float64.(bounds), sink, new_sink, Vector{VariableRef}[],
         false, model, Tuple{Int,Int}[], Vector{Int}[], 0, [Tuple{Float64,Float64}[] for _ in vertices_],
         Bool[], Bool[], Bool[], Int[], Vector{Float64}[], Vector{Float64}[], [Int[] for _ in eachindex(vert_ids)],
         src_id, snk_id, Cint[],
@@ -90,11 +89,7 @@ function add_resource!(graph::VrpGraph; main=false, binary=false, disposable=tru
     if binary && disposable
         @error "Disposable binary resources are not supported"
     end
-    if rcsp_path != ""
-        id = Int(ccall((:addResource_c, rcsp_path), Cint, (Ptr{Cvoid}, Cint), graph.cptr, Cint(main)))
-    else
-        id = graph.nb_resources
-    end
+    id = graph.nb_resources
     graph.nb_resources += 1
     for b in graph.res_bounds
         push!(b, (0.0, 0.0))
@@ -111,24 +106,13 @@ set_resource_bounds!(graph::VrpGraph, vertid::Int, resid::Int, lb::Int, ub::Int)
 function set_resource_bounds!(
     graph::VrpGraph, vertid::Int, resid::Int, lb::Float64, ub::Float64,
 )
-    vid = (vertid == graph.orig_sink) ? graph.new_sink : vertid
-    @try_ccall(
-        (:setResourceBounds_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64, Float64),
-        graph.cptr, Cint(vid), Cint(resid), lb, ub,
-    )
     graph.res_bounds[graph.vert_ids[vertid+1]+1][resid+1] = (lb, ub)
     return
 end
 
 function add_arc!(graph::VrpGraph, tail::Int, head::Int)
     h = (head == graph.orig_sink) ? graph.new_sink : head
-    if rcsp_path != ""
-        id = Int(ccall(
-            (:addArc_c, rcsp_path), Cint, (Ptr{Cvoid}, Cint, Cint), graph.cptr, Cint(tail), Cint(h),
-        ))
-    else
-        id = length(graph.arcs)
-    end
+    id = length(graph.arcs)
     if id + 1 > length(graph.arcs)
         resize!(graph.arcs, id + 1)
     end
@@ -140,10 +124,6 @@ end
 set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Int) =
     set_arc_consumption!(graph, arcid, resid, Float64(cons))
 function set_arc_consumption!(graph::VrpGraph, arcid::Int, resid::Int, cons::Float64)
-    @try_ccall(
-        (:setArcConsumption_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64),
-        graph.cptr, Cint(arcid), Cint(resid), cons,
-    )
     graph.res_cons[arcid+1][resid+1] = cons
     return
 end
@@ -156,12 +136,6 @@ function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::Vector{Variab
 end
 
 function add_arc_var_mapping!(graph::VrpGraph{T}, arcid::Int, var::VariableRef) where {T}
-    varid = getvarid!(graph.model, var)
-    cost = coefficient(graph.model.form_obj, var)
-    @try_ccall(
-        (:addArcVarMapping_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Cint, Float64),
-        graph.cptr, Cint(arcid), Cint(varid - 1), cost,
-    )
     mapped = get_mappedvarids!(graph, arcid)
     push!(mapped, var)
     spids = get(graph.model.spids_by_var, var, zeros(Bool, graph.id))
@@ -191,30 +165,10 @@ function add_graph!(model::T, graph::VrpGraph) where {T<:AbstractVrpModel}
     return
 end
 
-function preprocess_graph!(graph::VrpGraph)
-    if !graph.is_preproc
-        @try_ccall((:preprocessGraph_c, rcsp_path), Cint, (Ptr{Cvoid},), graph.cptr)
-        graph.is_preproc = true
-    end
-    return
-end
-
 function set_packing_sets!(
     is_vertex::Bool, model::T, psets::Vector{Vector{Tuple{VrpGraph{T},Int}}},
 ) where {T<:AbstractVrpModel}
     model.is_vertex_psets = is_vertex
-    if is_vertex
-        sizes = Cint.(length.(psets))
-        graphs = vcat([getfield.(getindex.(ps, 1), :cptr) for ps in psets]...)
-        vertids = vcat([map(x -> Cint(x[1].vert_ids[x[2]+1]), ps) for ps in psets]...)
-        @try_ccall(
-            (:setVertexPackingSets_c, rcsp_path), Cvoid,
-            (Cint, Ptr{Cint}, Ref{Ptr{Cvoid}}, Ptr{Cint}),
-            Cint(length(psets)), sizes, graphs, vertids,
-        )
-    else
-        #TODO
-    end
     model.packing_sets = [[(graph.id - 1, elemid) for (graph, elemid) in pset] for pset in psets]
     empty!(model.pset_to_id)
     for pset in psets
@@ -256,11 +210,6 @@ function define_elementarity_sets_distance_matrix!(
     end
 
     # set the distance matrix
-    dists = vcat(distmatrix...)
-    @try_ccall(
-        (:defineElemSetsDistMatrix_c, rcsp_path), Cvoid, (Ptr{Cvoid}, Cint, Ptr{Float64}),
-        graph.cptr, nb_psets, dists,
-    )
     graph.dist_matrix = distmatrix
 end
 
@@ -278,3 +227,74 @@ function add_elem_set_to_vertex_init_ng_neighbourhood!(
     end
     return
 end
+
+function add_capacity_cut_separator!(
+    model::M, demandsets::Vector{Tuple{Vector{Tuple{VrpGraph{M},Int}},Float64}},
+    capacity::Float64,
+) where {M<:AbstractVrpModel}
+    # check that all demand sets are packing sets and map all graph vertices to them
+    vid_to_pset = [[-1 for _ in 1:length(rcsp.graph.vert_ids)] for rcsp in model.rcsp_instances]
+    dem_sets = [([(ps[1].id - 1, ps[1].vert_ids[ps[2]+1]) for ps in ps_set], d) for (ps_set, d) in demandsets]
+    for (ps_set, _) in dem_sets
+        psid = get(model.pset_to_id, ps_set, -1)
+        (psid == -1) && error(
+            "Collection that is not a packing set was used in a capacity cut separator." *
+            " Only the packing set collections can be used for add_capacity_cut_separator",
+        )
+        for ps in ps_set
+            vid_to_pset[ps[1]+1][ps[2]] = psid
+        end
+    end
+
+    # create and map variables to all uncovered arcs connecting packing set pairs
+    nb_psets = length(dem_sets)
+    arcs_by_pset_pair = [Tuple{Int,Int}[] for _ in 1:nb_psets, _ in 1:nb_psets]
+    for gid in eachindex(model.rcsp_instances)
+        graph = model.rcsp_instances[gid].graph
+        for (id, (h, t)) in enumerate(graph.arcs)
+            if isempty(graph.mappings[id])
+                head = graph.vert_ids[h+1] + 1
+                tail = graph.vert_ids[t+1] + 1
+                edge = (head < tail) ? (head, tail) : (tail, head)
+                if (vid_to_pset[gid][head] != -1) && (vid_to_pset[gid][tail] != -1)
+                    push!(
+                        arcs_by_pset_pair[vid_to_pset[gid][edge[1]]+1, vid_to_pset[gid][edge[2]]+1],
+                        (gid, id - 1),
+                    )
+                end
+            end
+        end
+    end
+    id_demands = [Cint(0) for _ in 1:length(model.packing_sets)]
+    for (ps_set, d) in dem_sets
+        ps_id = model.pset_to_id[ps_set]
+        id_demands[ps_id+1] = Cint(d)
+    end
+    num_missing_arcs = 0
+    uncovered = Tuple{Int,Int}[]
+    dims_psp = size(arcs_by_pset_pair)
+    for head in 1:dims_psp[1], tail in (head+1):dims_psp[2]
+        if (id_demands[head] > 0) && (id_demands[tail] > 0) && !isempty(arcs_by_pset_pair[head, tail])
+            push!(uncovered, (head, tail))
+            num_missing_arcs += length(arcs_by_pset_pair[head, tail])
+        end
+    end
+    if length(uncovered) > 0
+        println("VrpSolver: adding $(length(uncovered)) internal variables mapping to ",
+            "$num_missing_arcs arcs for use by capacity cuts",
+        )
+    end
+    if num_missing_arcs > 0
+        @variable(model.formulation,
+            RCCsepX[ps_pair in uncovered], Int
+        )
+        for (head, tail) in uncovered
+            for (gid, arcid) in arcs_by_pset_pair[head, tail]
+                graph = model.rcsp_instances[gid].graph
+                add_arc_var_mapping!(graph, arcid, RCCsepX[(head, tail)])
+            end
+        end
+    end
+    push!(model.rcc_demands, (Cint(capacity), id_demands))
+end
+

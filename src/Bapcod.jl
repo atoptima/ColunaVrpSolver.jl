@@ -285,6 +285,11 @@ function wbcr_attach_elementarity_set_to_edge(c_net::Ptr{Cvoid}, edge_id::Intege
         c_net, Cint(edge_id), Cint(es_id))
 end
 
+function wbcr_set_elementarity_sets_distance_matrix(c_net::Ptr{Cvoid}, dists::Array{Array{Cdouble,1},1}, nb_packsets::Integer)
+    status = @bcr_ccall("setElemSetsDistanceMatrix", Cint, (Ptr{Cvoid}, Ptr{Ptr{Cdouble}}, Cint),
+        c_net, dists, Cint(nb_packsets))
+end
+
 function wbcr_add_vertex_to_mem_of_elementarity_set(c_net::Ptr{Cvoid}, n_id::Integer, es_id::Integer)
     status = @bcr_ccall("addVertexToMemOfElementaritySet", Cint, (Ptr{Cvoid}, Cint, Cint),
         c_net, Cint(n_id), Cint(es_id))
@@ -791,22 +796,11 @@ function Coluna.Algorithm.run!(
         end
         if model.is_vertex_psets
             if !isempty(graph.dist_matrix)
-                for es1_id in eachindex(graph.elem_sets)
-                    dists = graph.dist_matrix[es1_id]
-                    neighs = [k for k in eachindex(graph.elem_sets)]
-                    sort!(neighs, by=x -> dists[x])
-                    for i in graph.elem_sets[es1_id]
-                        j = graph.vert_ids[i+1]
-                        k = 0
-                        for es2_id in neighs
-                            if k >= model.parameters[1].coluna_vrp_params.RCSPinitNGneighbourhoodSize
-                                break
-                            end
-                            wbcr_add_vertex_to_mem_of_elementarity_set(c_net_ptr, j, es2_id - 1)
-                            k += 1
-                        end
-                    end
-                end
+                wbcr_set_elementarity_sets_distance_matrix(
+                    c_net_ptr,
+                    graph.dist_matrix,
+                    Cint(length(graph.dist_matrix)),
+                )
             end
             if !all(isempty.(graph.ng_sets))
                 for vertex_id1 in eachindex(graph.vert_ids)
